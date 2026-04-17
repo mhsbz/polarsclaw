@@ -29,14 +29,7 @@ def register_all_builtin_tools(
     matching ``group:*`` group.
     """
     from polarsclaw.tools.builtin.cron_tools import make_cron_tools
-    from polarsclaw.tools.builtin.memory_tools import make_memory_tools
     from polarsclaw.tools.builtin.session_tools import make_session_tools
-
-    # ── Memory tools ───────────────────────────────────────────────────
-    memory_tools = make_memory_tools(db)
-    for tool in memory_tools:
-        registry.register(tool, groups=["group:memory"])
-    logger.info("Registered %d memory tools", len(memory_tools))
 
     # ── Cron tools ─────────────────────────────────────────────────────
     cron_tools = make_cron_tools(scheduler)
@@ -49,3 +42,6 @@ def register_all_builtin_tools(
     for tool in session_tools:
         registry.register(tool, groups=["group:session"])
     logger.info("Registered %d session tools", len(session_tools))
+
+    # NOTE: Memory tools (save_memory, recall_memory, list_memories) removed.
+    # Replaced by MemoryCore (memory_search, memory_get) + DeepAgents write_file.

@@ -39,6 +39,7 @@ class AppContext:
     plugin_loader: PluginLoader
     plugin_api: PluginAPI
     context_registry: ContextEngineRegistry
+    memory_core: Any = None  # MemoryCore instance (optional)
     agents: dict[str, AgentLoop] = field(default_factory=dict)
 
 
@@ -106,6 +107,25 @@ async def build_app(settings: Settings | None = None) -> AppContext:
     # ── 9. Start cron scheduler ────────────────────────────────────────
     await cron_scheduler.start()
     logger.info("Cron scheduler started (tz=%s)", settings.cron.timezone)
+
+    # ── 9.5. Memory subsystem ─────────────────────────────────────────
+    memory_core = None
+    try:
+        from polarsclaw.memory import MemoryCore
+        from polarsclaw.memory.config import MemoryConfig
+
+        mem_cfg = settings.memory if isinstance(settings.memory, MemoryConfig) else MemoryConfig()
+        memory_core = MemoryCore(db=db, config=mem_cfg)
+        await memory_core.initialize()
+        # Register memory tools with the tool registry
+        for mem_tool in memory_core.get_tools():
+            tool_registry.register(mem_tool)
+        # Register dreaming cron jobs
+        memory_core.register_jobs(cron_scheduler)
+        logger.info("Memory subsystem initialised (embedding=%s)", mem_cfg.embedding_provider)
+    except Exception:
+        logger.warning("Memory subsystem failed to initialise — running without it", exc_info=True)
+        memory_core = None
 
     # ── 10. Create agents from config ──────────────────────────────────
     agents: dict[str, AgentLoop] = {}
@@ -178,6 +198,7 @@ async def build_app(settings: Settings | None = None) -> AppContext:
         plugin_loader=plugin_loader,
         plugin_api=plugin_api,
         context_registry=context_registry,
+        memory_core=memory_core,
         agents=agents,
     )
 
@@ -185,6 +206,13 @@ async def build_app(settings: Settings | None = None) -> AppContext:
 async def cleanup_app(ctx: AppContext) -> None:
     """Clean up application resources."""
     logger.info("Cleaning up application resources...")
+
+    # Shutdown memory subsystem
+    if ctx.memory_core is not None:
+        try:
+            await ctx.memory_core.shutdown()
+        except Exception:
+            logger.warning("Error shutting down memory subsystem", exc_info=True)
 
     # Stop cron scheduler
     try:

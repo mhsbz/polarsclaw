@@ -122,7 +122,7 @@ def resolve_model(
     - google_genai:gemini-2.0-flash
 
     Custom providers (via settings.providers):
-    - minimax:MiniMax-M2.7 -> ChatAnthropic(base_url=..., model=..., api_key=...)
+    - minimax:MiniMax-M2.7-highspeed -> ChatAnthropic(base_url=..., model=..., api_key=...)
     """
     # Split on first ':' only
     if ":" in model_spec:

@@ -93,11 +93,17 @@ async def _chat_loop(
                             response_text += chunk
                             # Print incrementally
                             console.print(chunk, end="", highlight=False)
-                        console.print()  # newline after stream
+                        if response_text:
+                            console.print()  # newline after stream
+                        else:
+                            raise RuntimeError("Stream returned empty response")
                     except Exception:
                         # Fall back to non-streaming
                         response_text = await agent.run(text, session_id=session_id)
-                        console.print(Markdown(response_text))
+                        if response_text:
+                            console.print(Markdown(response_text))
+                        else:
+                            console.print("[yellow]No response from agent.[/yellow]")
                     console.print()
                 else:
                     console.print(f"\n*(echo)* {text}\n")

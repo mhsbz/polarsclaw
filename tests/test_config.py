@@ -17,7 +17,7 @@ class TestSettingsDefaults:
         assert s.skill_match_threshold == 0.7
         assert s.dm_scope == "main"
         assert s.gateway.port == 8765
-        assert s.agent.model == "minimax:MiniMax-M2.7"
+        assert s.agent.model == "minimax:MiniMax-M2.7-highspeed"
         assert s.cron.enabled is True
         assert s.queue.collect_window == 2.0
 

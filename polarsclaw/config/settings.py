@@ -17,11 +17,30 @@ DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "polarsclaw.db"
 # ── Sub-configs ──────────────────────────────────────────────────────────────
 
 
+class SubAgentConfig(BaseModel):
+    """Declarative sub-agent definition for DeepAgents task() tool."""
+
+    name: str
+    description: str
+    system_prompt: str = ""
+    model: str | None = None  # inherits parent model if None
+    tools: list[str] = Field(default_factory=list)  # tool names to include
+    skills: list[str] = Field(default_factory=list)  # skill dirs
+
+
+class FilesystemPermissionConfig(BaseModel):
+    """Filesystem permission rule for DeepAgents."""
+
+    operations: list[str] = Field(default_factory=lambda: ["read", "write"])
+    paths: list[str] = Field(default_factory=lambda: ["/**"])
+    mode: str = "allow"
+
+
 class AgentConfig(BaseModel):
     """Configuration for the LLM agent backend."""
 
     id: str = "default"
-    model: str = "minimax:MiniMax-M2.7"  # provider:model format
+    model: str = "minimax:MiniMax-M2.7-highspeed"  # provider:model format
     system_prompt: str = "You are PolarsClaw, a helpful personal AI assistant."
     workspace: Path | None = None
     tools: list[str] = Field(default_factory=list)
@@ -31,6 +50,16 @@ class AgentConfig(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 4096
     streaming: bool = True
+    subagents: list[SubAgentConfig] = Field(default_factory=list)
+    permissions: list[FilesystemPermissionConfig] = Field(
+        default_factory=lambda: [
+            FilesystemPermissionConfig(
+                operations=["read", "write"],
+                paths=["/**"],
+                mode="allow",
+            ),
+        ]
+    )
 
 
 class ModelProviderConfig(BaseModel):
@@ -105,6 +134,9 @@ class Settings(BaseSettings):
     cron: CronConfig = Field(default_factory=CronConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
     plugin: PluginConfig = Field(default_factory=PluginConfig)
+
+    # Memory subsystem
+    memory: Any = Field(default=None)  # Lazy: populated as MemoryConfig at runtime
 
     # Custom model providers
     providers: dict[str, ModelProviderConfig] = Field(default_factory=dict)

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator, Awaitable, Callable, TYPE_CHECKING
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -37,24 +37,29 @@ class AgentLoop:
         self._context_engine = context_engine
         self._graph: Any = None
         self._current_task: asyncio.Task[Any] | None = None
-        self._using_deep_agent: bool = False
 
     # ------------------------------------------------------------------
     # Build
     # ------------------------------------------------------------------
 
     async def build(self) -> None:
-        """Build the agent graph.
+        """Build the agent graph using DeepAgents.
 
-        Strategy:
-        1. Try ``deepagents.create_deep_agent`` for the full-featured path.
-        2. Fall back to ``langgraph.prebuilt.create_react_agent`` if the
-           deepagents package is not installed.
-
-        When *context_engine* is present and ``owns_compaction`` is set,
-        the compaction middleware is composed into the graph so the context
-        engine controls token-window management instead of the agent runtime.
+        Configures:
+        - ``LocalShellBackend`` for real filesystem + shell access
+        - ``skills`` from ``~/.polarsclaw/skills/`` and agent config
+        - ``memory`` from ``AGENTS.md`` files in workspace / config dir
+        - Optional compaction middleware from the context engine
         """
+        from pathlib import Path
+
+        from deepagents import (  # type: ignore[import-untyped]
+            FilesystemPermission,
+            SubAgent,
+            create_deep_agent,
+        )
+        from deepagents.backends import LocalShellBackend  # type: ignore[import-untyped]
+
         from polarsclaw.agents.providers import resolve_model
 
         llm = resolve_model(
@@ -66,7 +71,39 @@ class AgentLoop:
 
         system_prompt = self._config.system_prompt or ""
 
-        # Optionally attach compaction middleware from the context engine
+        # ---- Backend: real filesystem + shell ----------------------------
+        workspace = self._config.workspace or Path.cwd()
+        backend = LocalShellBackend(
+            root_dir=str(workspace),
+            virtual_mode=False,
+            inherit_env=True,
+            timeout=self._config.timeout,
+        )
+
+        # ---- Skills: discover from config dir + agent config -------------
+        skill_sources: list[str] = []
+        # Default skill directory
+        default_skill_dir = Path.home() / ".agents" / "skills"
+        if default_skill_dir.is_dir():
+            skill_sources.append(str(default_skill_dir))
+        # Additional skill dirs from agent config
+        for s in self._config.skills:
+            p = Path(s).expanduser()
+            if p.is_dir():
+                skill_sources.append(str(p))
+
+        # ---- Memory: AGENTS.md files ------------------------------------
+        memory_sources: list[str] = []
+        # Workspace AGENTS.md
+        workspace_agents = Path(workspace) / "AGENTS.md"
+        if workspace_agents.is_file():
+            memory_sources.append(str(workspace_agents))
+        # Config dir AGENTS.md
+        config_agents = self._settings.config_dir / "AGENTS.md"
+        if config_agents.is_file():
+            memory_sources.append(str(config_agents))
+
+        # ---- Compaction middleware from context engine --------------------
         compaction_middleware: Any = None
         if (
             self._context_engine is not None
@@ -76,42 +113,80 @@ class AgentLoop:
                 self._context_engine, "compaction_middleware", None
             )
 
-        # ----- primary path: DeepAgents ------------------------------------
-        try:
-            from deepagents import create_deep_agent  # type: ignore[import-untyped]
-
-            builder_kwargs: dict[str, Any] = {
-                "model": llm,
-                "tools": self._tools,
-                "checkpointer": self._checkpointer,
+        # ---- Sub-agents from config --------------------------------------
+        subagents: list[dict[str, Any]] = []
+        for sa_cfg in self._config.subagents:
+            sa: dict[str, Any] = {
+                "name": sa_cfg.name,
+                "description": sa_cfg.description,
+                "system_prompt": sa_cfg.system_prompt,
             }
-            if system_prompt:
-                builder_kwargs["system_prompt"] = system_prompt
-            if compaction_middleware is not None:
-                builder_kwargs["middleware"] = [compaction_middleware]
+            if sa_cfg.model:
+                sa["model"] = resolve_model(
+                    sa_cfg.model, self._settings,
+                    temperature=self._config.temperature,
+                    max_tokens=self._config.max_tokens,
+                )
+            if sa_cfg.skills:
+                sa["skills"] = [
+                    str(Path(s).expanduser()) for s in sa_cfg.skills
+                    if Path(s).expanduser().is_dir()
+                ]
+            subagents.append(sa)
 
-            self._graph = create_deep_agent(**builder_kwargs)
-            self._using_deep_agent = True
-            logger.info("AgentLoop built with DeepAgents (model=%s)", self._config.model)
-            return
+        # ---- Filesystem permissions --------------------------------------
+        # NOTE: DeepAgents permissions are incompatible with LocalShellBackend
+        # (SandboxBackendProtocol). Only apply when using FilesystemBackend.
+        permissions: list[FilesystemPermission] = []
+        if not hasattr(backend, "execute"):
+            for perm_cfg in self._config.permissions:
+                permissions.append(FilesystemPermission(
+                    operations=perm_cfg.operations,  # type: ignore[arg-type]
+                    paths=perm_cfg.paths,
+                    mode=perm_cfg.mode,  # type: ignore[arg-type]
+                ))
+        elif self._config.permissions:
+            logger.debug(
+                "Skipping filesystem permissions — incompatible with shell-enabled backend"
+            )
 
+        # ---- Cache (SQLite-backed via LangGraph) -------------------------
+        cache: Any = None
+        try:
+            from langgraph.cache.sqlite import SqliteCache  # type: ignore[import-untyped]
+            cache_path = self._settings.config_dir / "cache.db"
+            cache = SqliteCache(path=str(cache_path))
         except ImportError:
-            logger.debug("deepagents not installed — falling back to LangGraph react agent")
+            logger.debug("SqliteCache not available, running without cache")
 
-        # ----- fallback path: LangGraph react agent ------------------------
-        from langgraph.prebuilt import create_react_agent
-
-        builder_kwargs = {
+        # ---- Build -------------------------------------------------------
+        builder_kwargs: dict[str, Any] = {
             "model": llm,
             "tools": self._tools,
             "checkpointer": self._checkpointer,
+            "backend": backend,
+            "name": self._config.id,
         }
         if system_prompt:
-            builder_kwargs["prompt"] = system_prompt
+            builder_kwargs["system_prompt"] = system_prompt
+        if skill_sources:
+            builder_kwargs["skills"] = skill_sources
+        if memory_sources:
+            builder_kwargs["memory"] = memory_sources
+        if subagents:
+            builder_kwargs["subagents"] = subagents
+        if permissions:
+            builder_kwargs["permissions"] = permissions
+        if cache is not None:
+            builder_kwargs["cache"] = cache
+        if compaction_middleware is not None:
+            builder_kwargs["middleware"] = [compaction_middleware]
 
-        self._graph = create_react_agent(**builder_kwargs)
-        self._using_deep_agent = False
-        logger.info("AgentLoop built with LangGraph react agent (model=%s)", self._config.model)
+        self._graph = create_deep_agent(**builder_kwargs)
+        logger.info(
+            "AgentLoop built with DeepAgents (model=%s, backend=%s, skills=%d, memory=%d, subagents=%d)",
+            self._config.model, workspace, len(skill_sources), len(memory_sources), len(subagents),
+        )
 
     # ------------------------------------------------------------------
     # Run
@@ -236,21 +311,10 @@ class AgentLoop:
         inputs: dict[str, Any],
         config: dict[str, Any],
     ) -> AsyncIterator[str]:
-        """Unified token streaming across DeepAgents and LangGraph backends."""
-        if self._using_deep_agent:
-            raw_stream = self._graph.astream_events(inputs, config=config, version="v2")
-            async for token in StreamAdapter.adapt(raw_stream):
-                yield token
-        else:
-            # LangGraph react agent: astream_events v2
-            async for event in self._graph.astream_events(inputs, config=config, version="v2"):
-                kind = event.get("event", "")
-                if kind == "on_chat_model_stream":
-                    chunk = event.get("data", {}).get("chunk")
-                    if chunk is not None:
-                        text = getattr(chunk, "content", "")
-                        if isinstance(text, str) and text:
-                            yield text
+        """Stream tokens from DeepAgents."""
+        raw_stream = self._graph.astream_events(inputs, config=config, version="v2")
+        async for token in StreamAdapter.adapt(raw_stream):
+            yield token
 
     @staticmethod
     def _extract_response(result: dict[str, Any]) -> str:
