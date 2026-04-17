@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from polarsclaw.storage.database import Database
@@ -141,43 +142,64 @@ class MemoryDB:
 
     # ── FTS search ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _build_fts_query(raw: str) -> tuple[str, str]:
+        """Build safe FTS5 queries. Returns (and_query, or_query)."""
+        words = re.findall(r"\w+", raw, re.UNICODE)
+        if not words:
+            return (raw, raw)
+        quoted = [f'"{w}"' for w in words]
+        return (" AND ".join(quoted), " OR ".join(quoted))
+
+    async def _execute_fts(
+        self, fts_query: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Run a single FTS5 MATCH query. Returns raw rows or empty list."""
+        conn = self._db.get_connection()
+        try:
+            async with conn.execute(
+                """
+                SELECT
+                    mc.id          AS chunk_id,
+                    mc.file_id,
+                    mc.content,
+                    mc.heading,
+                    mc.token_count,
+                    bm25(mem_chunks_fts) AS raw_score
+                FROM mem_chunks_fts
+                JOIN mem_chunks mc ON mc.id = mem_chunks_fts.rowid
+                WHERE mem_chunks_fts MATCH ?
+                ORDER BY raw_score
+                LIMIT ?
+                """,
+                (fts_query, limit),
+            ) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+        except Exception:
+            logger.debug("FTS query failed for: %s", fts_query)
+            return []
+
     async def fts_search(
         self, query: str, *, limit: int = 20
     ) -> list[dict[str, Any]]:
-        """Full-text search via FTS5 MATCH. Returns results with BM25 scores normalised to 0-1."""
-        conn = self._db.get_connection()
-        # bm25() returns negative values where more-negative = better match.
-        async with conn.execute(
-            """
-            SELECT
-                mc.id          AS chunk_id,
-                mc.file_id,
-                mc.content,
-                mc.heading,
-                mc.token_count,
-                bm25(mem_chunks_fts) AS raw_score
-            FROM mem_chunks_fts
-            JOIN mem_chunks mc ON mc.id = mem_chunks_fts.rowid
-            WHERE mem_chunks_fts MATCH ?
-            ORDER BY raw_score
-            LIMIT ?
-            """,
-            (query, limit),
-        ) as cur:
-            rows = [dict(r) for r in await cur.fetchall()]
+        """Full-text search via FTS5 MATCH with RRF scoring.
 
+        Tries AND query first, falls back to OR if no results.
+        Uses Reciprocal Rank Fusion: score = 1/(k+rank) for stable cross-query scoring.
+        """
+        and_q, or_q = self._build_fts_query(query)
+
+        rows = await self._execute_fts(and_q, limit)
+        if not rows:
+            rows = await self._execute_fts(or_q, limit)
         if not rows:
             return []
 
-        # Normalise: raw BM25 scores are negative; convert to 0-1 range.
-        raw_scores = [r["raw_score"] for r in rows]
-        best = min(raw_scores)  # most negative = best
-        worst = max(raw_scores)
-        span = worst - best if worst != best else 1.0
-
-        for r in rows:
-            r["score"] = (worst - r["raw_score"]) / span
-            del r["raw_score"]
+        # RRF normalization: rank-based, query-independent, stable
+        _RRF_K = 60
+        for rank, r in enumerate(rows):
+            r["score"] = 1.0 / (_RRF_K + rank + 1)
+            r.pop("raw_score", None)
 
         return rows
 

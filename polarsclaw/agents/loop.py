@@ -71,6 +71,50 @@ class AgentLoop:
 
         system_prompt = self._config.system_prompt or ""
 
+        # ---- Mandatory memory instructions (OpenClaw-compatible) ----------
+        from datetime import date as _date
+
+        _today = _date.today().isoformat()
+        system_prompt += f"""
+
+## Memory System
+You have a persistent memory across sessions. Use it proactively.
+
+### Reading Memory
+Before answering ANY question about prior work, decisions, dates, people, preferences, or todos:
+1. Run `memory_search` with a relevant query to check MEMORY.md + memory/*.md
+2. If results are found, use `memory_get` to pull exact lines when needed
+3. If no results or low confidence, say you checked but found nothing
+Never skip this step — always search memory first for context-dependent questions.
+
+### Writing Memory
+Actively store important information for future sessions:
+
+**MEMORY.md** — Long-term durable memory (decisions, preferences, facts, people).
+- Use `edit_file` to append new entries under the appropriate section
+- Sections: ## User Preferences, ## Decisions, ## People, ## Facts
+- Never delete existing entries; only append or update
+- Keep entries concise: one line per fact
+
+**memory/{_today}.md** — Today's session notes.
+- Use `write_file` or `edit_file` to record session highlights
+- Format: markdown bullets under `# {_today}`
+- Record: key decisions, problems solved, new information learned
+- Append-only — never overwrite previous entries in the same file
+
+### When to Write Memory
+- User states a preference → save to MEMORY.md ## User Preferences
+- A decision is made → save to MEMORY.md ## Decisions
+- You learn a new fact about the user/project → save to MEMORY.md ## Facts
+- A significant task is completed → save to memory/{_today}.md
+- User explicitly asks to remember something → save to MEMORY.md
+
+### Safety Rules
+- NEVER modify AGENTS.md, DREAMS.md (read-only)
+- MEMORY.md: append-only, never delete entries
+- Daily notes: append-only within the same day's file
+"""
+
         # ---- Backend: real filesystem + shell ----------------------------
         workspace = self._config.workspace or Path.cwd()
         backend = LocalShellBackend(
@@ -92,9 +136,9 @@ class AgentLoop:
             if p.is_dir():
                 skill_sources.append(str(p))
 
-        # ---- Memory: AGENTS.md files ------------------------------------
+        # ---- Memory: AGENTS.md + MEMORY.md + recent daily notes ----------
         memory_sources: list[str] = []
-        # Workspace AGENTS.md
+        # Workspace AGENTS.md (static project instructions)
         workspace_agents = Path(workspace) / "AGENTS.md"
         if workspace_agents.is_file():
             memory_sources.append(str(workspace_agents))
@@ -102,6 +146,19 @@ class AgentLoop:
         config_agents = self._settings.config_dir / "AGENTS.md"
         if config_agents.is_file():
             memory_sources.append(str(config_agents))
+        # MEMORY.md (long-term durable memory, loaded every session)
+        memory_md = Path(workspace) / "MEMORY.md"
+        if memory_md.is_file():
+            memory_sources.append(str(memory_md))
+        # Today + yesterday daily notes (like OpenClaw)
+        from datetime import date, timedelta
+        memory_dir = Path(workspace) / "memory"
+        if memory_dir.is_dir():
+            for offset in (0, 1):
+                day = date.today() - timedelta(days=offset)
+                daily = memory_dir / f"{day.isoformat()}.md"
+                if daily.is_file():
+                    memory_sources.append(str(daily))
 
         # ---- Compaction middleware from context engine --------------------
         compaction_middleware: Any = None

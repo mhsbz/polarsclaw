@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-import struct
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -34,12 +33,15 @@ class SearchResult:
 
 class HybridSearcher:
     """Combines BM25 full-text search with vector cosine similarity,
-    applies temporal decay, and re-ranks via MMR for diversity."""
+    applies temporal decay, and re-ranks via MMR for diversity.
+
+    Gracefully degrades to FTS-only when no embedder is available.
+    """
 
     def __init__(
         self,
         db: MemoryDB,
-        embedder: EmbeddingProvider,
+        embedder: EmbeddingProvider | None,
         config: MemoryConfig,
     ) -> None:
         self._db = db
@@ -57,14 +59,15 @@ class HybridSearcher:
         file_filter: str | None = None,
         session_id: str | None = None,
     ) -> list[SearchResult]:
-        """Run hybrid search and return the top *limit* results."""
+        """Run hybrid search and return the top *limit* results.
 
-        # 1. Embed query (provider.embed takes list[str], returns ndarray)
-        query_array = await self._embedder.embed([query])
-        query_vec: np.ndarray = query_array[0]  # shape (D,)
+        Falls back to FTS-only when embedder is unavailable or embed fails.
+        """
+        cfg = self._config
+        over_fetch = limit * 3
 
-        # 2. FTS5 search (BM25) — already normalised to 0–1 by MemoryDB
-        fts_rows = await self._db.fts_search(query, limit=100)
+        # 1. FTS5 search (always runs — never depends on embedder)
+        fts_rows = await self._db.fts_search(query, limit=over_fetch)
         fts_scores: dict[int, float] = {}
         chunk_data: dict[int, dict] = {}
         for row in fts_rows:
@@ -72,23 +75,22 @@ class HybridSearcher:
             fts_scores[cid] = row["score"]
             chunk_data[cid] = row
 
-        # 3. Vector cosine similarity over all stored embeddings
-        all_vecs = await self._db.get_all_vectors()  # list[(chunk_id, blob)]
+        # 2. Vector search (optional — skipped if no embedder or embed fails)
         vec_scores: dict[int, float] = {}
-        for cid, blob in all_vecs:
-            n = len(blob) // 4
-            emb = np.frombuffer(blob, dtype=np.float32, count=n)
-            sim = self._cosine_similarity(query_vec, emb)
-            vec_scores[cid] = max(0.0, float(sim))
+        query_vec: np.ndarray | None = None
 
-        # Normalise vector scores to [0, 1]
-        if vec_scores:
-            mx = max(vec_scores.values()) or 1.0
-            vec_scores = {k: v / mx for k, v in vec_scores.items()}
+        if self._embedder is not None:
+            try:
+                embed_result = await self._embedder.embed([query])
+                if embed_result is not None and len(embed_result) > 0:
+                    query_vec = embed_result[0]
+                    vec_scores = await self._batch_vector_search(query_vec, over_fetch)
+            except Exception:
+                logger.warning("Vector search failed, using FTS-only", exc_info=True)
 
-        # Resolve file paths for all candidate chunks
+        # 3. Resolve file paths for all candidate chunks
         all_ids = set(fts_scores) | set(vec_scores)
-        file_path_cache: dict[int, str] = {}  # file_id -> path
+        file_path_cache: dict[int, str] = {}
 
         for cid in all_ids:
             if cid not in chunk_data:
@@ -96,10 +98,8 @@ class HybridSearcher:
                 if row:
                     chunk_data[cid] = row
 
-        # Build SearchResult candidates
-        # We need the file path per chunk; look up via file_id -> mem_files
+        # 4. Build SearchResult candidates with score fusion
         candidates: list[SearchResult] = []
-        cfg = self._config
 
         for cid in all_ids:
             row = chunk_data.get(cid)
@@ -117,7 +117,12 @@ class HybridSearcher:
 
             vs = vec_scores.get(cid, 0.0)
             fs = fts_scores.get(cid, 0.0)
-            fused = cfg.vector_weight * vs + cfg.text_weight * fs
+
+            # Fuse: if we have both, weighted sum; if FTS-only, use FTS score directly
+            if vec_scores:
+                fused = cfg.vector_weight * vs + cfg.text_weight * fs
+            else:
+                fused = fs
 
             # 5. Temporal decay
             fused = self._apply_temporal_decay(fp, fused, cfg)
@@ -137,9 +142,7 @@ class HybridSearcher:
         candidates.sort(key=lambda r: r.score, reverse=True)
 
         # 6. MMR re-rank for diversity
-        results = self._mmr_rerank(
-            candidates, query_vec, limit, cfg.mmr_lambda
-        )
+        results = self._mmr_rerank(candidates, limit, cfg.mmr_lambda)
 
         # 7. Record recalls
         if self._recall_tracker and results:
@@ -147,24 +150,52 @@ class HybridSearcher:
 
         return results
 
-    # ── helpers ──────────────────────────────────────────────────────────
+    # ── vector search (numpy batch) ─────────────────────────────────────
 
-    @staticmethod
-    def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity between two vectors."""
-        dot = float(np.dot(a, b))
-        na = float(np.linalg.norm(a))
-        nb = float(np.linalg.norm(b))
-        if na == 0.0 or nb == 0.0:
-            return 0.0
-        return dot / (na * nb)
+    async def _batch_vector_search(
+        self, query_vec: np.ndarray, limit: int
+    ) -> dict[int, float]:
+        """Batch cosine similarity using numpy matrix ops — ~100x faster than per-row."""
+        all_vecs = await self._db.get_all_vectors()
+        if not all_vecs:
+            return {}
+
+        ids = [v[0] for v in all_vecs]
+        matrix = np.stack(
+            [np.frombuffer(v[1], dtype=np.float32) for v in all_vecs]
+        )  # (N, D)
+
+        # Batch cosine: (matrix @ query) / (||rows|| * ||query||)
+        query_norm = np.linalg.norm(query_vec)
+        if query_norm == 0:
+            return {}
+
+        row_norms = np.linalg.norm(matrix, axis=1)
+        row_norms[row_norms == 0] = 1.0
+        scores = (matrix @ query_vec) / (row_norms * query_norm)
+
+        # Top-k via argpartition (O(n) average vs O(n log n) full sort)
+        k = min(limit, len(scores))
+        top_idx = np.argpartition(scores, -k)[-k:]
+        top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
+
+        # Normalize to [0, 1]
+        result = {}
+        mx = float(scores[top_idx[0]]) if len(top_idx) > 0 else 1.0
+        mx = mx if mx > 0 else 1.0
+        for i in top_idx:
+            s = max(0.0, float(scores[i]))
+            result[ids[i]] = s / mx
+
+        return result
+
+    # ── helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _apply_temporal_decay(
         file_path: str, base_score: float, config: MemoryConfig
     ) -> float:
         """Decay score based on date in file path; MEMORY.md is evergreen."""
-        # Evergreen files get no decay
         if "MEMORY.md" in file_path:
             return base_score
 
@@ -190,7 +221,6 @@ class HybridSearcher:
     @staticmethod
     def _mmr_rerank(
         candidates: list[SearchResult],
-        query_embedding: np.ndarray,  # noqa: ARG004
         limit: int,
         lambda_param: float,
     ) -> list[SearchResult]:
@@ -211,7 +241,6 @@ class HybridSearcher:
             for i, cand in enumerate(remaining):
                 relevance = cand.score
 
-                # Max Jaccard similarity to any already-selected result
                 max_sim = 0.0
                 cand_tok = _tokens(cand.content)
                 for sel in selected:

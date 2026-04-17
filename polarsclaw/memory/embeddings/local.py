@@ -31,15 +31,26 @@ class SentenceTransformerProvider(EmbeddingProvider):
     def _get_model(self):  # noqa: ANN202
         return _load_model(self._model_name)
 
-    async def embed(self, texts: list[str]) -> np.ndarray:
-        """Encode *texts* on a thread so the event loop stays free."""
-        model = self._get_model()
+    async def embed(self, texts: list[str]) -> np.ndarray | None:
+        """Encode *texts* on a thread so the event loop stays free.
+
+        Returns ``None`` if the model fails to load or encode.
+        """
+        try:
+            model = self._get_model()
+        except Exception:
+            logger.warning("Failed to load sentence-transformer model: %s", self._model_name)
+            return None
 
         def _encode() -> np.ndarray:
             return model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
 
-        result = await asyncio.to_thread(_encode)
-        return result.astype(np.float32)
+        try:
+            result = await asyncio.to_thread(_encode)
+            return result.astype(np.float32)
+        except Exception:
+            logger.warning("sentence-transformer encode failed", exc_info=True)
+            return None
 
     def dimension(self) -> int:
         return self._get_model().get_sentence_embedding_dimension()  # type: ignore[return-value]

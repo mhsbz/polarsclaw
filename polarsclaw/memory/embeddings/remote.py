@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _MAX_RETRIES = 3
 _BATCH_SIZE = 256
+_CONSECUTIVE_FAILURE_LIMIT = 3
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
@@ -32,19 +33,43 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._base_url = (base_url or os.environ.get("OPENAI_BASE_URL", _DEFAULT_BASE_URL)).rstrip("/")
+        self._consecutive_failures = 0
+        self._disabled = False
 
-    async def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed *texts* via the OpenAI API with batching and retry."""
+    async def embed(self, texts: list[str]) -> np.ndarray | None:
+        """Embed *texts* via the OpenAI API with batching and retry.
+
+        Returns ``None`` if the provider is disabled or all retries fail.
+        """
+        if self._disabled:
+            return None
+
         all_embeddings: list[list[float]] = []
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for start in range(0, len(texts), _BATCH_SIZE):
-                batch = texts[start : start + _BATCH_SIZE]
-                data = await self._request_with_retry(client, batch)
-                # Sort by index to guarantee order
-                data.sort(key=lambda d: d["index"])
-                all_embeddings.extend(d["embedding"] for d in data)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for start in range(0, len(texts), _BATCH_SIZE):
+                    batch = texts[start : start + _BATCH_SIZE]
+                    data = await self._request_with_retry(client, batch)
+                    if data is None:
+                        self._consecutive_failures += 1
+                        if self._consecutive_failures >= _CONSECUTIVE_FAILURE_LIMIT:
+                            logger.warning(
+                                "OpenAI embeddings disabled after %d consecutive failures",
+                                self._consecutive_failures,
+                            )
+                            self._disabled = True
+                        return None
+                    data.sort(key=lambda d: d["index"])
+                    all_embeddings.extend(d["embedding"] for d in data)
+        except Exception:
+            logger.warning("OpenAI embedding request failed", exc_info=True)
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= _CONSECUTIVE_FAILURE_LIMIT:
+                self._disabled = True
+            return None
 
+        self._consecutive_failures = 0
         return np.array(all_embeddings, dtype=np.float32)
 
     async def _request_with_retry(
@@ -79,9 +104,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 import asyncio
                 await asyncio.sleep(wait)
 
-        raise RuntimeError(
-            f"OpenAI embedding request failed after {_MAX_RETRIES} attempts"
-        ) from last_exc
+        logger.warning("OpenAI embedding failed after %d retries", _MAX_RETRIES)
+        return None
 
     def dimension(self) -> int:
         return self._dimension

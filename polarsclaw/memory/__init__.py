@@ -58,7 +58,11 @@ class MemoryCore:
         # 2. Wire up components
         embedder = create_embedding_provider(self._config)
         self._memory_db = MemoryDB(self._db)
-        self._indexer = FileIndexer(self._memory_db, embedder, self._config)
+        if embedder is not None:
+            self._indexer = FileIndexer(self._memory_db, embedder, self._config)
+        else:
+            self._indexer = None
+            logger.info("No embedding provider — indexing disabled, FTS-only search")
         self._recall_tracker = RecallTracker(self._memory_db)
         self._searcher = HybridSearcher(
             self._memory_db, embedder, self._config
@@ -95,7 +99,8 @@ class MemoryCore:
 
     async def index_file(self, path: str) -> int:
         """Index (or re-index) a single file. Returns chunk count (0/1)."""
-        assert self._indexer is not None, "MemoryCore not initialised"
+        if self._indexer is None:
+            return 0
         full = Path(self._config.workspace) / path
         indexed = await self._indexer.index_file(full)
         return 1 if indexed else 0
@@ -129,8 +134,11 @@ class MemoryCore:
 
     async def _index_existing_files(self) -> None:
         """Index MEMORY.md, memory/*.md, and DREAMS.md when present."""
+        if self._indexer is None:
+            logger.info("Indexing skipped (no embedding provider).")
+            return
+
         ws = Path(self._config.workspace)
-        assert self._indexer is not None
 
         files: list[Path] = []
 
