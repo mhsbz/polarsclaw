@@ -59,18 +59,10 @@ async def create_agent(
     """
 
     # ---- 1. Resolve tools from registry --------------------------------
-    tool_names: list[str] = getattr(agent_config, "tools", []) or []
-    tools = tool_registry.resolve(tool_names) if tool_names else tool_registry.all()
+    tools = tool_registry.get_tools(agent_config)
 
     # ---- 2. Merge skill-based tools ------------------------------------
-    if skill_registry is not None:
-        skill_tool_names: list[str] = getattr(agent_config, "skill_tools", []) or []
-        if skill_tool_names:
-            skill_tools = skill_registry.as_tools(skill_tool_names)
-            tools = list(tools) + list(skill_tools)
-            logger.debug(
-                "Merged %d skill tools into agent tool set", len(skill_tools)
-            )
+    # (skill tools are a future extension — for now skills run as sub-agents)
 
     # ---- 3. Build the loop ---------------------------------------------
     loop = AgentLoop(

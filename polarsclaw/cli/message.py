@@ -27,26 +27,22 @@ async def _send_message(
 ) -> None:
     console = Console()
 
-    # --- Build app ---
     try:
         from polarsclaw.app import build_app, cleanup_app
+        from polarsclaw.config.settings import Settings
     except ImportError:
-        console.print("[red]App module not available yet.[/red]")
+        console.print("[red]App module not available.[/red]")
         return
 
-    settings = None
     config_path = (ctx.obj or {}).get("config_path")
     try:
-        from polarsclaw.config.settings import Settings
+        settings = Settings.from_file(config_path) if config_path else Settings()
+    except Exception as exc:
+        console.print(f"[red]Failed to load settings: {exc}[/red]")
+        return
 
-        if config_path:
-            settings = Settings.from_file(config_path)
-        else:
-            settings = Settings()
-        if model:
-            settings.default_model = model
-    except ImportError:
-        pass
+    if model:
+        settings.agent.model = model
 
     try:
         app = await build_app(settings)
@@ -55,19 +51,13 @@ async def _send_message(
         return
 
     try:
-        # --- Create agent ---
-        agent = None
-        try:
-            from polarsclaw.agents.factory import create_agent
-
-            agent = create_agent(app)
-        except ImportError:
-            pass
-
         if session_id is None:
             session_id = uuid.uuid4().hex[:12]
 
-        # --- Run ---
+        agent = None
+        if app.agents:
+            agent = next(iter(app.agents.values()))
+
         if agent is not None:
             response_text = await agent.run(text, session_id=session_id)
         else:

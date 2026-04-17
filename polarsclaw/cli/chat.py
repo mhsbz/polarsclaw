@@ -28,23 +28,23 @@ async def _chat_loop(
     # --- 1. Build application context ---
     try:
         from polarsclaw.app import build_app, cleanup_app
+        from polarsclaw.config.settings import Settings
     except ImportError:
-        console.print("[red]App module not available yet. Install dependencies first.[/red]")
+        console.print("[red]App module not available. Install dependencies first.[/red]")
         return
 
-    settings = None
     config_path = (ctx.obj or {}).get("config_path")
     try:
-        from polarsclaw.config.settings import Settings
+        settings = Settings.from_file(config_path) if config_path else Settings()
+    except Exception as exc:
+        console.print(f"[red]Failed to load settings: {exc}[/red]")
+        return
 
-        if config_path:
-            settings = Settings.from_file(config_path)
-        else:
-            settings = Settings()
-        if model:
-            settings.default_model = model
-    except ImportError:
-        console.print("[yellow]Settings module not ready — using defaults.[/yellow]")
+    # Override model if specified
+    if model:
+        settings.agent.model = model
+
+    console.print("[dim]Starting PolarsClaw...[/dim]")
 
     try:
         app = await build_app(settings)
@@ -52,20 +52,20 @@ async def _chat_loop(
         console.print(f"[red]Failed to initialise app: {exc}[/red]")
         return
 
-    # --- 2. Create agent ---
+    # --- 2. Get the default agent ---
     agent = None
-    try:
-        from polarsclaw.agents.factory import create_agent
-
-        agent = create_agent(app)
-    except ImportError:
-        console.print("[yellow]Agent factory not available — echo mode active.[/yellow]")
+    if app.agents:
+        default_id = next(iter(app.agents))
+        agent = app.agents[default_id]
+        console.print(f"[dim]Agent: {default_id} (model={settings.agent.model})[/dim]")
+    else:
+        console.print("[yellow]No agent available — echo mode.[/yellow]")
 
     # --- 3. Session ---
     if session_id is None:
         session_id = uuid.uuid4().hex[:12]
     console.print(f"[dim]Session: {session_id}[/dim]")
-    console.print("[dim]Type /quit or /exit to leave. Ctrl+C to cancel current response.[/dim]\n")
+    console.print("[dim]Type /quit or /exit to leave. Ctrl+C to cancel.[/dim]\n")
 
     # --- 4. REPL ---
     try:
@@ -86,28 +86,30 @@ async def _chat_loop(
             # --- Get response ---
             try:
                 if agent is not None:
+                    console.print()
                     response_text = ""
-                    if hasattr(agent, "stream"):
+                    try:
                         async for chunk in agent.stream(text, session_id=session_id):
                             response_text += chunk
-                            # Live streaming could be added here
-                    else:
+                            # Print incrementally
+                            console.print(chunk, end="", highlight=False)
+                        console.print()  # newline after stream
+                    except Exception:
+                        # Fall back to non-streaming
                         response_text = await agent.run(text, session_id=session_id)
+                        console.print(Markdown(response_text))
+                    console.print()
                 else:
-                    # Echo mode fallback
-                    response_text = f"*(echo)* {text}"
+                    console.print(f"\n*(echo)* {text}\n")
 
-                console.print()
-                console.print(Markdown(response_text))
-                console.print()
             except KeyboardInterrupt:
-                console.print("\n[yellow]Response cancelled.[/yellow]\n")
+                if agent:
+                    await agent.cancel()
+                console.print("\n[yellow]Cancelled.[/yellow]\n")
             except Exception as exc:
                 console.print(f"\n[red]Error: {exc}[/red]\n")
     finally:
         try:
-            from polarsclaw.app import cleanup_app as _cleanup
-
-            await _cleanup(app)
+            await cleanup_app(app)
         except Exception:
             pass
