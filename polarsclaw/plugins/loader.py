@@ -6,6 +6,7 @@ import importlib
 import logging
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from polarsclaw.plugins.models import PluginManifest, PluginState
@@ -66,9 +67,51 @@ class PluginLoader:
                 )
             )
 
+        manifests.extend(self._discover_directory_plugins())
+
         self._manifests = manifests
         logger.info("Discovered %d plugin(s) via entry-points", len(manifests))
         return list(manifests)
+
+    def _discover_directory_plugins(self) -> list[PluginManifest]:
+        """Discover plugins from configured local directories."""
+        manifests: list[PluginManifest] = []
+        seen_names = {manifest.name for manifest in self._manifests}
+
+        for raw_dir in self._settings.plugin.directories:
+            plugin_dir = Path(raw_dir).expanduser()
+            if not plugin_dir.is_dir():
+                logger.warning("Plugin directory does not exist: %s", plugin_dir)
+                continue
+
+            sys.path.insert(0, str(plugin_dir))
+
+            for path in sorted(plugin_dir.iterdir()):
+                if path.name.startswith("_"):
+                    continue
+                if path.is_file() and path.suffix == ".py":
+                    name = path.stem
+                    entry_point = name
+                elif path.is_dir() and (path / "__init__.py").exists():
+                    name = path.name
+                    entry_point = name
+                else:
+                    continue
+
+                if name in seen_names:
+                    continue
+
+                manifests.append(
+                    PluginManifest(
+                        name=name,
+                        version="0.0.0",
+                        entry_point=entry_point,
+                        description=f"Plugin from directory {plugin_dir}",
+                    )
+                )
+                seen_names.add(name)
+
+        return manifests
 
     # ------------------------------------------------------------------
     # Loading

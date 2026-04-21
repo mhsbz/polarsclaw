@@ -137,7 +137,7 @@ class DeepSleep:
             if len(c.content) > 100:
                 snippet += "…"
             entry_lines.append(
-                f"- [{c.chunk_id[:8]}] (score={c.score:.3f}) {snippet}"
+                f"- [{str(c.chunk_id)[:8]}] (score={c.score:.3f}) {snippet}"
             )
         entry_lines.append("")
 

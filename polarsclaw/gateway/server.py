@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from polarsclaw.gateway.auth import verify_token
+from polarsclaw.gateway.bridge import GatewayBridge
 from polarsclaw.gateway.protocol import ACK, DONE, ERROR, HELLO, MESSAGE, STREAM, decode, encode, make
 from polarsclaw.types import QueueMode, WSMessageType
 
@@ -25,6 +26,7 @@ def create_gateway(
     command_queue: "CommandQueue",
     router: Any = None,
     session_mgr: "SessionManager | None" = None,
+    bridge: GatewayBridge | None = None,
 ) -> FastAPI:
     """Build and return a fully-configured :class:`FastAPI` application."""
 
@@ -38,8 +40,7 @@ def create_gateway(
         allow_headers=["*"],
     )
 
-    # Keep track of active WS connections for streaming responses back
-    _connections: dict[str, WebSocket] = {}  # request_id -> ws
+    bridge = bridge or GatewayBridge()
 
     # ── WebSocket ────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ def create_gateway(
                 content = msg.data.get("content", "")
 
                 # Register connection for streaming
-                _connections[request_id] = websocket
+                await bridge.register(request_id, websocket, sid)
 
                 # Enqueue
                 rid = await command_queue.enqueue(sid, content, mode, request_id=request_id)
@@ -91,29 +92,9 @@ def create_gateway(
         except WebSocketDisconnect:
             pass
         finally:
-            # Clean up any registered connections for this websocket
-            to_remove = [k for k, v in _connections.items() if v is websocket]
-            for k in to_remove:
-                _connections.pop(k, None)
+            await bridge.unregister_websocket(websocket)
 
-    # ── Streaming helper (used by queue handler) ─────────────────────────
-
-    async def _stream_to_ws(request_id: str, chunk: str) -> None:
-        ws = _connections.get(request_id)
-        if ws:
-            frame = make(STREAM, data={"chunk": chunk}, request_id=request_id)
-            await ws.send_text(encode(frame))
-
-    async def _done_to_ws(request_id: str, result: str) -> None:
-        ws = _connections.get(request_id)
-        if ws:
-            frame = make(DONE, data={"result": result}, request_id=request_id)
-            await ws.send_text(encode(frame))
-        _connections.pop(request_id, None)
-
-    # Expose helpers on the app for the queue handler to use
-    app.state.stream_to_ws = _stream_to_ws  # type: ignore[attr-defined]
-    app.state.done_to_ws = _done_to_ws  # type: ignore[attr-defined]
+    app.state.gateway_bridge = bridge  # type: ignore[attr-defined]
 
     # ── REST endpoints ───────────────────────────────────────────────────
 

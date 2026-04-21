@@ -30,6 +30,7 @@ class SessionRepo:
     async def create(
         self,
         *,
+        session_id: str | None = None,
         title: str | None = None,
         scope: str = "main",
         peer_id: str | None = None,
@@ -37,7 +38,7 @@ class SessionRepo:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         """Create a new session and return its id."""
-        session_id = uuid.uuid4().hex
+        session_id = session_id or uuid.uuid4().hex
         now = _now()
         await self._db.execute_write(
             """
@@ -369,20 +370,28 @@ class CronRepo:
         *,
         output: str | None = None,
         error: str | None = None,
+        session_id: str | None = None,
+        task: str | None = None,
+        duration_ms: int | None = None,
         started_at: str | None = None,
         finished_at: str | None = None,
     ) -> int:
         """Record an execution result."""
         cursor = await self._db.execute_write(
             """
-            INSERT INTO cron_results (job_id, status, output, error, started_at, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO cron_results (
+                job_id, status, output, error, session_id, task, duration_ms, started_at, finished_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
                 status,
                 output,
                 error,
+                session_id,
+                task,
+                duration_ms,
                 started_at or _now(),
                 finished_at,
             ),

@@ -52,6 +52,24 @@ class MultiAgentRouter:
             If no binding matches and no default agent is configured, or if
             the resolved ``agent_id`` is not present in the agents dict.
         """
+        agent_id = self.resolve_agent_id(
+            peer_id=peer_id,
+            channel_id=channel_id,
+            roles=roles,
+            account_id=account_id,
+        )
+
+        return self._agents[agent_id]
+
+    def resolve_agent_id(
+        self,
+        *,
+        peer_id: str | None = None,
+        channel_id: str | None = None,
+        roles: list[str] | None = None,
+        account_id: str | None = None,
+    ) -> str:
+        """Resolve context to an agent id, applying fallback policy."""
         agent_id = resolve_bindings(
             self._bindings,
             peer_id=peer_id,
@@ -62,7 +80,7 @@ class MultiAgentRouter:
 
         if agent_id is None:
             if self._default_agent and self._default_agent in self._agents:
-                return self._agents[self._default_agent]
+                return self._default_agent
             raise RoutingError(
                 f"No binding matched (peer={peer_id}, channel={channel_id}, "
                 f"roles={roles}, account={account_id}) and no default agent configured"
@@ -73,4 +91,4 @@ class MultiAgentRouter:
                 f"Binding resolved to agent '{agent_id}' which is not registered"
             )
 
-        return self._agents[agent_id]
+        return agent_id

@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.base import BaseCheckpointSaver
-
-    from polarsclaw.config.settings import AgentConfig
+    from polarsclaw.agents.loop import AgentLoop
+    from polarsclaw.config.settings import Settings
     from polarsclaw.skills.parser import SkillEntry
 
 logger = logging.getLogger(__name__)
@@ -19,8 +18,8 @@ logger = logging.getLogger(__name__)
 async def execute_skill(
     skill: "SkillEntry",
     message: str,
-    agent_config: "AgentConfig",
-    checkpointer: "BaseCheckpointSaver",
+    agent_loop: "AgentLoop",
+    settings: "Settings",
 ) -> str:
     """Run *skill* as a sub-agent and return the response string.
 
@@ -34,12 +33,19 @@ async def execute_skill(
 
     # ── Attempt 1: DeepAgents ──────────────────────────────────────────
     try:
-        from deep_agents import create_deep_agent  # type: ignore[import-untyped]
+        from deepagents import create_deep_agent  # type: ignore[import-untyped]
+
+        from polarsclaw.agents.providers import resolve_model
 
         agent = create_deep_agent(
-            model=agent_config.model,
+            model=resolve_model(
+                agent_loop.config.model,
+                settings,
+                temperature=agent_loop.config.temperature,
+                max_tokens=agent_loop.config.max_tokens,
+            ),
             system_prompt=system_prompt,
-            checkpointer=checkpointer,
+            checkpointer=agent_loop.checkpointer,
         )
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content=message)]},
@@ -60,9 +66,9 @@ async def execute_skill(
     from langgraph.prebuilt import create_react_agent
 
     agent = create_react_agent(
-        model=agent_config.model,
+        model=agent_loop.config.model,
         tools=[],
-        checkpointer=checkpointer,
+        checkpointer=agent_loop.checkpointer,
         prompt=SystemMessage(content=system_prompt),
     )
     result = await agent.ainvoke(

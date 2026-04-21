@@ -27,6 +27,7 @@ class SessionManager:
         self,
         agent_id: str,
         *,
+        session_id: str | None = None,
         peer_id: str | None = None,
         channel_id: str | None = None,
         title: str | None = None,
@@ -34,6 +35,7 @@ class SessionManager:
         """Create a brand-new session."""
         scope = resolve_session_key(agent_id, peer_id, channel_id, self._dm_scope)
         session_id = await self._repo.create(
+            session_id=session_id,
             title=title,
             scope=scope,
             peer_id=peer_id,
@@ -82,6 +84,35 @@ class SessionManager:
 
         # Nothing found — create
         return await self.create(agent_id, peer_id=peer_id, channel_id=channel_id)
+
+    async def create_with_id(
+        self,
+        session_id: str,
+        agent_id: str,
+        *,
+        peer_id: str | None = None,
+        channel_id: str | None = None,
+        title: str | None = None,
+    ) -> Session:
+        """Create a session with an explicit ID for external callers."""
+        return await self.create(
+            agent_id,
+            session_id=session_id,
+            peer_id=peer_id,
+            channel_id=channel_id,
+            title=title,
+        )
+
+    async def list_all(
+        self,
+        *,
+        scope: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Session]:
+        """List sessions as typed models."""
+        rows = await self._repo.list(scope=scope, limit=limit, offset=offset)
+        return [_row_to_session(row) for row in rows]
 
     async def daily_reset(self) -> int:
         """Archive (delete) sessions that haven't been updated today.

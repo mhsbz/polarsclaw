@@ -38,7 +38,7 @@ def register_all_builtin_tools(
     logger.info("Registered %d cron tools", len(cron_tools))
 
     # ── Session tools ──────────────────────────────────────────────────
-    session_tools = make_session_tools(db)
+    session_tools = make_session_tools(session_mgr)
     for tool in session_tools:
         registry.register(tool, groups=["group:session"])
     logger.info("Registered %d session tools", len(session_tools))

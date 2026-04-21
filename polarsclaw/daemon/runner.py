@@ -9,6 +9,7 @@ from datetime import datetime, time as dtime, timedelta, timezone
 
 from polarsclaw.app import AppContext, build_app, cleanup_app
 from polarsclaw.config.settings import Settings
+from polarsclaw.runtime import dispatch_message
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ async def _daily_session_reset(ctx: AppContext) -> None:
         logger.debug("Daily reset in %.0f seconds.", seconds_until)
         await asyncio.sleep(seconds_until)
         logger.info("Daily session reset triggered.")
-        # Placeholder — actual reset logic can be added later
+        await ctx.session_manager.daily_reset()
 
 
 async def _run_gateway(ctx: AppContext) -> None:
@@ -38,6 +39,7 @@ async def _run_gateway(ctx: AppContext) -> None:
         command_queue=ctx.command_queue,
         router=ctx.router,
         session_mgr=ctx.session_manager,
+        bridge=ctx.gateway_bridge,
     )
 
     config = uvicorn.Config(
@@ -54,25 +56,19 @@ async def _run_queue_processor(ctx: AppContext) -> None:
     """Process the command queue, routing messages to agents."""
 
     async def _handler(session_id: str, request_id: str, message: str) -> str:
-        """Route a queued message to the appropriate agent and return the reply."""
-        try:
-            agent_loop = ctx.router.resolve(
-                peer_id=None,
-                channel_id=None,
-                roles=None,
-                account_id=None,
-            )
-        except Exception:
-            # Fallback to first agent
-            agent_loop = next(iter(ctx.agents.values()), None)
+        result = await dispatch_message(
+            ctx,
+            content=message,
+            session_id=session_id,
+            on_token=lambda chunk: ctx.gateway_bridge.stream(request_id, chunk),
+        )
+        return result.response
 
-        if agent_loop is None:
-            return "No agent available to handle this request."
-
-        result = await agent_loop.run(session_id=session_id, message=message)
-        return result
-
-    await ctx.command_queue.start(_handler)
+    await ctx.command_queue.start(
+        _handler,
+        on_done=ctx.gateway_bridge.done,
+        on_error=lambda request_id, exc: ctx.gateway_bridge.error(request_id, str(exc)),
+    )
 
 
 async def run_daemon(settings: Settings | None = None) -> None:

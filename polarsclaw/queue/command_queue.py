@@ -23,6 +23,8 @@ class _QueueItem:
 
 # Handler signature: (session_id, request_id, message) -> result string
 HandlerFn = Callable[[str, str, str], Awaitable[str]]
+DoneFn = Callable[[str, str], Awaitable[None]]
+ErrorFn = Callable[[str, Exception], Awaitable[None]]
 
 
 class CommandQueue:
@@ -74,6 +76,11 @@ class CommandQueue:
         """Add a message to the queue. Returns the request_id."""
         rid = request_id or str(uuid.uuid4())
 
+        if self.pending_count >= self._max_pending:
+            raise RuntimeError(
+                f"Command queue full ({self.pending_count}/{self._max_pending})"
+            )
+
         if mode is QueueMode.INTERRUPT:
             await self._handle_interrupt(session_id, rid, message)
             return rid
@@ -93,7 +100,13 @@ class CommandQueue:
         ))
         return rid
 
-    async def process(self, handler: HandlerFn) -> None:
+    async def start(
+        self,
+        handler: HandlerFn,
+        *,
+        on_done: DoneFn | None = None,
+        on_error: ErrorFn | None = None,
+    ) -> None:
         """Main processing loop — call once, runs until :meth:`stop`."""
         self._running = True
         try:
@@ -103,11 +116,23 @@ class CommandQueue:
                 except asyncio.TimeoutError:
                     continue
 
-                task = asyncio.create_task(self._process_item(item, handler))
+                task = asyncio.create_task(
+                    self._process_item(item, handler, on_done=on_done, on_error=on_error)
+                )
                 self._tasks.add(task)
                 task.add_done_callback(self._tasks.discard)
         except asyncio.CancelledError:
             pass
+
+    async def process(
+        self,
+        handler: HandlerFn,
+        *,
+        on_done: DoneFn | None = None,
+        on_error: ErrorFn | None = None,
+    ) -> None:
+        """Backward-compatible alias for :meth:`start`."""
+        await self.start(handler, on_done=on_done, on_error=on_error)
 
     async def stop(self) -> None:
         """Gracefully shut down: finish in-flight work, then exit."""
@@ -122,7 +147,14 @@ class CommandQueue:
 
     # ── Internal ─────────────────────────────────────────────────────────
 
-    async def _process_item(self, item: _QueueItem, handler: HandlerFn) -> None:
+    async def _process_item(
+        self,
+        item: _QueueItem,
+        handler: HandlerFn,
+        *,
+        on_done: DoneFn | None = None,
+        on_error: ErrorFn | None = None,
+    ) -> None:
         lane = self._lanes.get_or_create(item.session_id)
         cancel_event = self._cancel_events.get(item.session_id)
 
@@ -136,9 +168,12 @@ class CommandQueue:
         async with self._global_sem:
             async with lane.semaphore:
                 try:
-                    await handler(item.session_id, item.request_id, item.message)
-                except Exception:
-                    pass  # Handler is responsible for error reporting
+                    result = await handler(item.session_id, item.request_id, item.message)
+                    if on_done is not None:
+                        await on_done(item.request_id, result)
+                except Exception as exc:
+                    if on_error is not None:
+                        await on_error(item.request_id, exc)
                 finally:
                     lane.pending -= 1
                     self._lanes.release(item.session_id)

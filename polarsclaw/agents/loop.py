@@ -38,6 +38,18 @@ class AgentLoop:
         self._graph: Any = None
         self._current_task: asyncio.Task[Any] | None = None
 
+    @property
+    def agent_id(self) -> str:
+        return self._config.id
+
+    @property
+    def config(self) -> "AgentConfig":
+        return self._config
+
+    @property
+    def checkpointer(self) -> BaseCheckpointSaver:
+        return self._checkpointer
+
     # ------------------------------------------------------------------
     # Build
     # ------------------------------------------------------------------

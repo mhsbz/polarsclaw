@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PolarsClaw Console</title>
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Poppins:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --radius-xs: 4px;
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --shadow-light: 0 12px 16px -4px rgba(36, 36, 36, 0.08);
+        --shadow-brand: 0 0 15px rgba(44, 30, 116, 0.16);
+        --shadow-dark: 0 22px 40px rgba(4, 10, 25, 0.32);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        background: var(--bg);
+        color: var(--text);
+        transition:
+          background-color 220ms ease,
+          color 220ms ease,
+          border-color 220ms ease,
+          box-shadow 220ms ease;
+      }
+
+      body[data-theme="light"] {
+        color-scheme: light;
+        --bg: #ffffff;
+        --bg-2: #f5f8ff;
+        --bg-3: #f3f4f8;
+        --panel: rgba(255, 255, 255, 0.9);
+        --panel-strong: #ffffff;
+        --panel-muted: #f8faff;
+        --border: #e5e7eb;
+        --border-strong: #d9deec;
+        --text: #222222;
+        --text-2: #45515e;
+        --text-3: #8e8e93;
+        --brand: #1456f0;
+        --brand-2: #3b82f6;
+        --brand-3: #60a5fa;
+        --accent: #ea5ec1;
+        --success: #17a364;
+        --danger: #cf3f7a;
+        --header-bg: rgba(255, 255, 255, 0.88);
+        --surface-image: linear-gradient(135deg, rgba(20, 86, 240, 0.08), rgba(234, 94, 193, 0.08));
+        --shadow: var(--shadow-light);
+        --hero-shadow: var(--shadow-brand);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #08111f;
+        --bg-2: #0d1728;
+        --bg-3: #111d31;
+        --panel: rgba(13, 23, 40, 0.9);
+        --panel-strong: #101b2f;
+        --panel-muted: #0c1627;
+        --border: rgba(122, 157, 255, 0.18);
+        --border-strong: rgba(122, 157, 255, 0.28);
+        --text: #f4f8ff;
+        --text-2: #a4b3cb;
+        --text-3: #73839c;
+        --brand: #73a7ff;
+        --brand-2: #3d93ff;
+        --brand-3: #1a5cff;
+        --accent: #ff78cf;
+        --success: #66d7a4;
+        --danger: #ff8aa5;
+        --header-bg: rgba(8, 17, 31, 0.82);
+        --surface-image: linear-gradient(135deg, rgba(61, 147, 255, 0.18), rgba(255, 120, 207, 0.14));
+        --shadow: var(--shadow-dark);
+        --hero-shadow: 0 0 18px rgba(61, 147, 255, 0.2);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(180deg, rgba(20, 86, 240, 0.03), transparent 26%),
+          repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 79px,
+            rgba(20, 86, 240, 0.03) 79px,
+            rgba(20, 86, 240, 0.03) 80px
+          );
+        opacity: 1;
+      }
+
+      body[data-theme="dark"]::before {
+        background-image:
+          linear-gradient(180deg, rgba(61, 147, 255, 0.08), transparent 25%),
+          repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 95px,
+            rgba(115, 167, 255, 0.04) 95px,
+            rgba(115, 167, 255, 0.04) 96px
+          );
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+        border: 0;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .app-shell {
+        position: relative;
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 18px;
+        padding: 14px 20px;
+        background: var(--header-bg);
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(14px);
+      }
+
+      .brand-row,
+      .topbar-actions,
+      .theme-toggle,
+      .status-line,
+      .session-meta,
+      .rail-footer {
+        display: flex;
+        align-items: center;
+      }
+
+      .brand-row {
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .brand-lockup {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        font-family: "Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--brand), var(--accent));
+        box-shadow: var(--hero-shadow);
+      }
+
+      .brand-name {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .brand-name strong {
+        font-family: "Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .brand-name span {
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .pill-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .mini-pill,
+      .ghost-pill,
+      .theme-toggle button {
+        height: 34px;
+        border-radius: 8px;
+        padding: 0 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .mini-pill {
+        background: rgba(20, 86, 240, 0.09);
+        color: var(--brand);
+        border: 1px solid rgba(20, 86, 240, 0.12);
+      }
+
+      body[data-theme="dark"] .mini-pill {
+        background: rgba(115, 167, 255, 0.12);
+        border-color: rgba(115, 167, 255, 0.18);
+      }
+
+      .ghost-pill {
+        background: var(--bg-3);
+        color: var(--text-2);
+      }
+
+      .topbar-actions {
+        gap: 12px;
+      }
+
+      .theme-toggle {
+        gap: 6px;
+        padding: 4px;
+        border-radius: 8px;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+      }
+
+      .theme-toggle button {
+        min-width: 82px;
+        color: var(--text-2);
+        background: transparent;
+      }
+
+      .theme-toggle button.is-active {
+        background: linear-gradient(135deg, var(--brand), var(--accent));
+        color: #ffffff;
+        box-shadow: var(--hero-shadow);
+      }
+
+      .workspace-grid {
+        display: grid;
+        grid-template-columns: 270px minmax(0, 1fr) 320px;
+        gap: 18px;
+        padding: 18px 20px 20px;
+        min-height: calc(100vh - 72px);
+      }
+
+      .surface,
+      .stack-panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .nav-surface {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        overflow: hidden;
+      }
+
+      .section-header {
+        padding: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .section-header h2,
+      .pane-title,
+      .card-title {
+        margin: 0;
+        font-family: "Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      }
+
+      .section-header h2 {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .section-header p {
+        margin: 6px 0 0;
+        font-size: 13px;
+        color: var(--text-2);
+      }
+
+      .owner-row {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 12px;
+        padding: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .owner-row img,
+      .image-card img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+      }
+
+      .owner-avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+
+      .owner-meta {
+        min-width: 0;
+      }
+
+      .owner-meta strong {
+        display: block;
+        font-size: 15px;
+      }
+
+      .owner-meta span {
+        display: block;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .owner-meta .status-line {
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--success);
+      }
+
+      .nav-block {
+        padding: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .nav-block:last-of-type {
+        border-bottom: 0;
+      }
+
+      .subtle-label {
+        margin: 0 0 12px;
+        color: var(--text-3);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0;
+      }
+
+      .mode-grid,
+      .skill-list,
+      .memory-list,
+      .tool-list,
+      .signal-list,
+      .metric-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .mode-chip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-muted);
+      }
+
+      .mode-chip strong,
+      .skill-row strong,
+      .signal-row strong {
+        font-size: 14px;
+      }
+
+      .mode-chip span,
+      .skill-row span,
+      .signal-row span,
+      .memory-row span,
+      .tool-row span {
+        color: var(--text-2);
+        font-size: 12px;
+      }
+
+      .session-list {
+        overflow: auto;
+        padding: 10px 12px 12px;
+      }
+
+      .session-button {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 40px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px;
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        border: 1px solid transparent;
+        margin-bottom: 8px;
+      }
+
+      .session-button:hover,
+      .session-button.is-active {
+        background: var(--panel-muted);
+        border-color: var(--border-strong);
+      }
+
+      .session-button .thumb {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--surface-image);
+      }
+
+      .session-copy {
+        min-width: 0;
+      }
+
+      .session-copy strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .session-copy span {
+        display: block;
+        font-size: 12px;
+        color: var(--text-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .session-metric {
+        color: var(--text-3);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .rail-footer {
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px 18px;
+        border-top: 1px solid var(--border);
+      }
+
+      .rail-footer button,
+      .composer button {
+        border-radius: 8px;
+        padding: 11px 14px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .rail-footer .primary,
+      .composer .primary {
+        background: linear-gradient(135deg, var(--brand), var(--accent));
+        color: #ffffff;
+        box-shadow: var(--hero-shadow);
+      }
+
+      .rail-footer .secondary,
+      .composer .secondary {
+        background: var(--bg-3);
+        color: var(--text-2);
+      }
+
+      .chat-surface {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        overflow: hidden;
+      }
+
+      .pane-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .pane-title {
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .pane-subtitle {
+        margin: 6px 0 0;
+        color: var(--text-2);
+        font-size: 14px;
+      }
+
+      .header-badges {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .metric-card {
+        padding: 14px;
+        border-radius: 8px;
+        background: var(--panel-muted);
+        border: 1px solid var(--border);
+      }
+
+      .metric-card span {
+        display: block;
+        font-size: 12px;
+        color: var(--text-3);
+        text-transform: uppercase;
+        letter-spacing: 0;
+      }
+
+      .metric-card strong {
+        display: block;
+        margin-top: 6px;
+        font-family: "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size: 20px;
+        font-weight: 500;
+      }
+
+      .conversation-shell {
+        min-height: 0;
+        overflow: auto;
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+        background:
+          linear-gradient(180deg, rgba(20, 86, 240, 0.02), transparent 32%),
+          var(--panel-strong);
+      }
+
+      body[data-theme="dark"] .conversation-shell {
+        background:
+          linear-gradient(180deg, rgba(61, 147, 255, 0.07), transparent 28%),
+          linear-gradient(180deg, rgba(12, 22, 39, 0.95), rgba(12, 22, 39, 0.95));
+      }
+
+      .message-row {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+      }
+
+      .message-avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        font-size: 15px;
+        font-weight: 700;
+        background: var(--surface-image);
+        border: 1px solid var(--border);
+        color: var(--brand);
+      }
+
+      .message-body {
+        min-width: 0;
+      }
+
+      .message-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .message-meta strong {
+        font-size: 15px;
+      }
+
+      .message-meta span {
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .message-copy {
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      .message-copy p {
+        margin: 0 0 10px;
+      }
+
+      .message-copy p:last-child,
+      .inline-stack p:last-child {
+        margin-bottom: 0;
+      }
+
+      .message-copy ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .message-copy code,
+      .tool-row code,
+      .memory-row code {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 6px;
+        background: var(--bg-3);
+        font-family: "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size: 12px;
+      }
+
+      .message-row.user .message-avatar {
+        background: linear-gradient(135deg, rgba(20, 86, 240, 0.16), rgba(61, 174, 255, 0.18));
+      }
+
+      .message-row.user .message-copy {
+        background: linear-gradient(135deg, rgba(20, 86, 240, 0.08), rgba(255, 255, 255, 0.9));
+      }
+
+      body[data-theme="dark"] .message-row.user .message-copy {
+        background: linear-gradient(135deg, rgba(61, 147, 255, 0.15), rgba(16, 27, 47, 0.96));
+      }
+
+      .inline-stack {
+        display: grid;
+        gap: 8px;
+      }
+
+      .composer {
+        border-top: 1px solid var(--border);
+        padding: 16px 20px 20px;
+        display: grid;
+        gap: 12px;
+        background: var(--panel);
+      }
+
+      .composer textarea {
+        width: 100%;
+        min-height: 96px;
+        resize: vertical;
+        padding: 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel-muted);
+        color: var(--text);
+      }
+
+      .composer-footer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .composer-hint {
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .composer-actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .stack-rail {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .stack-panel {
+        overflow: hidden;
+      }
+
+      .stack-panel .panel-head {
+        padding: 16px 16px 0;
+      }
+
+      .card-title {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .panel-head p {
+        margin: 6px 0 0;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      .image-card {
+        display: grid;
+        grid-template-rows: 168px auto;
+        background: var(--panel);
+      }
+
+      .image-card .visual {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .image-card .visual::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, transparent, rgba(8, 17, 31, 0.28));
+      }
+
+      .signal-row,
+      .skill-row,
+      .memory-row,
+      .tool-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .signal-row:last-child,
+      .skill-row:last-child,
+      .memory-row:last-child,
+      .tool-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .signal-row:first-child,
+      .skill-row:first-child,
+      .memory-row:first-child,
+      .tool-row:first-child {
+        padding-top: 0;
+      }
+
+      .signal-row em,
+      .skill-row em,
+      .memory-row em,
+      .tool-row em {
+        color: var(--text-3);
+        font-size: 12px;
+        font-style: normal;
+      }
+
+      .score {
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: var(--bg-3);
+        color: var(--text-2);
+        font-family: "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .highlight-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .highlight-tile {
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel-muted);
+      }
+
+      .highlight-tile strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .highlight-tile span {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--text-2);
+      }
+
+      .system-note {
+        padding: 14px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(23, 163, 100, 0.18);
+        background: rgba(23, 163, 100, 0.09);
+        color: var(--success);
+        font-size: 13px;
+      }
+
+      body[data-theme="dark"] .system-note {
+        border-color: rgba(102, 215, 164, 0.2);
+        background: rgba(102, 215, 164, 0.09);
+      }
+
+      @media (max-width: 1300px) {
+        .workspace-grid {
+          grid-template-columns: 246px minmax(0, 1fr) 300px;
+        }
+
+        .metric-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 1080px) {
+        .workspace-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .nav-surface {
+          grid-template-rows: auto auto auto;
+        }
+
+        .session-list {
+          max-height: 280px;
+        }
+
+        .stack-rail {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .topbar,
+        .pane-header,
+        .composer-footer {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .topbar-actions,
+        .header-badges,
+        .composer-actions {
+          justify-content: flex-start;
+        }
+
+        .metric-strip,
+        .highlight-grid,
+        .stack-rail {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .workspace-grid {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="light">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-row">
+          <div class="brand-lockup">
+            <div class="brand-mark">P</div>
+            <div class="brand-name">
+              <strong>PolarsClaw Console</strong>
+              <span>Frontend shell for the local-first assistant runtime in this repository</span>
+            </div>
+          </div>
+          <div class="pill-strip">
+            <div class="mini-pill">MiniMax-M2.7-highspeed</div>
+            <div class="ghost-pill">SQLite + FTS5</div>
+            <div class="ghost-pill">Gateway 127.0.0.1:8765</div>
+            <div class="ghost-pill">DM scope: main</div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="theme-toggle" aria-label="Theme switch">
+            <button type="button" data-theme-option="light" class="is-active">Light mode</button>
+            <button type="button" data-theme-option="dark">Dark mode</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace-grid">
+        <aside class="surface nav-surface">
+          <div class="section-header">
+            <h2>Runtime Surface</h2>
+            <p>Project-specific shell mapped to the actual PolarsClaw subsystems.</p>
+          </div>
+
+          <div class="owner-row">
+            <div class="owner-avatar">
+              <img
+                src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=320&q=80"
+                alt="Workspace owner portrait"
+              />
+            </div>
+            <div class="owner-meta">
+              <strong>default agent</strong>
+              <span>model=minimax:MiniMax-M2.7-highspeed · tool_profile=full</span>
+              <div class="status-line">
+                <div class="dot"></div>
+                <span>streaming enabled · queue shell ready</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-block">
+            <p class="subtle-label">Core subsystems</p>
+            <div class="mode-grid">
+              <div class="mode-chip">
+                <div>
+                  <strong>Gateway</strong>
+                  <span>REST + WebSocket surface</span>
+                </div>
+                <span>LIVE</span>
+              </div>
+              <div class="mode-chip">
+                <div>
+                  <strong>Agent Loop</strong>
+                  <span>DeepAgents-backed runtime</span>
+                </div>
+                <span>READY</span>
+              </div>
+              <div class="mode-chip">
+                <div>
+                  <strong>Router + Sessions</strong>
+                  <span>binding + scope resolution</span>
+                </div>
+                <span>READY</span>
+              </div>
+              <div class="mode-chip">
+                <div>
+                  <strong>Command Queue</strong>
+                  <span>collect / steer / followup / interrupt</span>
+                </div>
+                <span>4x</span>
+              </div>
+              <div class="mode-chip">
+                <div>
+                  <strong>Cron Scheduler</strong>
+                  <span>runtime jobs + history</span>
+                </div>
+                <span>UTC</span>
+              </div>
+              <div class="mode-chip">
+                <div>
+                  <strong>Memory Core</strong>
+                  <span>hybrid search + dreaming</span>
+                </div>
+                <span>LOCAL</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-block">
+            <p class="subtle-label">CLI surface</p>
+            <div class="tool-list">
+              <div class="tool-row">
+                <div>
+                  <strong><code>polarsclaw chat</code></strong>
+                  <span>interactive chat session</span>
+                </div>
+                <em>CLI</em>
+              </div>
+              <div class="tool-row">
+                <div>
+                  <strong><code>polarsclaw message</code></strong>
+                  <span>single message dispatch</span>
+                </div>
+                <em>CLI</em>
+              </div>
+              <div class="tool-row">
+                <div>
+                  <strong><code>polarsclaw skills list</code></strong>
+                  <span>discover local skills</span>
+                </div>
+                <em>CLI</em>
+              </div>
+              <div class="tool-row">
+                <div>
+                  <strong><code>polarsclaw cron list</code></strong>
+                  <span>inspect scheduled jobs</span>
+                </div>
+                <em>CLI</em>
+              </div>
+              <div class="tool-row">
+                <div>
+                  <strong><code>polarsclaw daemon status</code></strong>
+                  <span>background process state</span>
+                </div>
+                <em>CLI</em>
+              </div>
+            </div>
+          </div>
+
+          <div class="session-list" id="sessionList" aria-label="Mock sessions"></div>
+
+          <div class="rail-footer">
+            <button type="button" class="secondary">Daemon view</button>
+            <button type="button" class="primary">Chat view</button>
+          </div>
+        </aside>
+
+        <section class="surface chat-surface">
+          <div class="pane-header">
+            <div>
+              <h1 class="pane-title" id="conversationTitle">Prototype session</h1>
+              <p class="pane-subtitle" id="conversationSubtitle">
+                Product-console first, dual-theme, mock-only conversation surface.
+              </p>
+            </div>
+            <div class="header-badges" id="conversationBadges"></div>
+          </div>
+
+          <div class="metric-strip" id="metricStrip"></div>
+
+          <div class="conversation-shell" id="conversationShell" aria-live="polite"></div>
+
+          <form class="composer" id="composer">
+            <textarea
+              id="composerInput"
+              placeholder="Ask about gateway frames, queue modes, sessions, memory jobs, or CLI commands."
+            ></textarea>
+            <div class="composer-footer">
+              <div class="composer-hint">
+                Mock interaction only. The language matches real PolarsClaw features, but no dispatch runs here.
+              </div>
+              <div class="composer-actions">
+                <button type="button" class="secondary" id="clearDraft">Clear</button>
+                <button type="submit" class="primary">Append mock turn</button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <aside class="stack-rail">
+          <section class="stack-panel image-card">
+            <div class="visual">
+              <img
+                src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=80"
+                alt="Abstract illuminated circuit board"
+              />
+            </div>
+            <div class="panel-body">
+              <h2 class="card-title">Default Provider</h2>
+              <p>
+                The shipped default config targets <code>minimax:MiniMax-M2.7-highspeed</code>
+                through an Anthropic-compatible base URL, with streaming enabled and no frontend
+                dependency on a hosted control plane.
+              </p>
+            </div>
+          </section>
+
+          <section class="stack-panel">
+            <div class="panel-head">
+              <h2 class="card-title">Active Runtime Detail</h2>
+              <p>Session-specific subsystem details reflected from the project shape.</p>
+            </div>
+            <div class="panel-body">
+              <div class="signal-list" id="signalList"></div>
+            </div>
+          </section>
+
+          <section class="stack-panel">
+            <div class="panel-head">
+              <h2 class="card-title">Registries + Surfaces</h2>
+              <p>Tooling, storage, and command surfaces for the selected runtime view.</p>
+            </div>
+            <div class="panel-body">
+              <div class="skill-list" id="detailList"></div>
+              <div class="system-note" style="margin-top: 14px;">This prototype mirrors the runtime structure, not a fake connected backend.</div>
+            </div>
+          </section>
+
+          <section class="stack-panel image-card">
+            <div class="visual">
+              <img
+                src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80"
+                alt="Robot figure in a technical workspace"
+              />
+            </div>
+            <div class="panel-body">
+              <h2 class="card-title">Local-First Persistence</h2>
+              <div class="highlight-grid">
+                <div class="highlight-tile">
+                  <strong>Config file</strong>
+                  <span><code>~/.polarsclaw/config.json</code></span>
+                </div>
+                <div class="highlight-tile">
+                  <strong>Primary DB</strong>
+                  <span><code>~/.polarsclaw/polarsclaw.db</code></span>
+                </div>
+                <div class="highlight-tile">
+                  <strong>Memory files</strong>
+                  <span><code>MEMORY.md</code> + <code>memory/*.md</code></span>
+                </div>
+                <div class="highlight-tile">
+                  <strong>Checkpoint DB</strong>
+                  <span><code>~/.polarsclaw/checkpoints.db</code></span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      const ownerAvatar = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=320&q=80";
+
+      const sessions = [
+        {
+          id: "daemon-gateway",
+          title: "Daemon + gateway surface",
+          summary: "FastAPI gateway, GatewayBridge, and the REST/WebSocket entrypoints",
+          latency: ":8765",
+          thumb: ownerAvatar,
+          badges: ["Gateway", "Daemon", "Mock traffic"],
+          metrics: [
+            { label: "Host", value: "127.0.0.1" },
+            { label: "Port", value: "8765" },
+            { label: "Heartbeat", value: "30s" },
+            { label: "Frames", value: "6 types" },
+          ],
+          signals: [
+            { name: "REST routes", detail: "/health, /sessions, /message are defined in gateway.server", score: "ready" },
+            { name: "WebSocket", detail: "/ws emits hello and accepts request frames", score: "ready" },
+            { name: "GatewayBridge", detail: "request_id and session_id map stream/done/error back to sockets", score: "wired" },
+          ],
+          details: [
+            { name: "GatewayConfig", detail: "host, port, cors_origins, heartbeat_interval, auth_token", score: "config" },
+            { name: "GatewayBridge", detail: "tracks websocket connections by request and by session", score: "runtime" },
+            { name: "DaemonProcess", detail: "start / stop / status command surface for background runtime", score: "cli" },
+            { name: "CLI daemon", detail: "polarsclaw daemon start|stop|status", score: "entry" },
+          ],
+          messages: [
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "just now",
+              avatar: "PC",
+              content:
+                "<p>The gateway in this repo is not a vague chat backend. It is a FastAPI surface with REST endpoints for <code>/health</code>, <code>/sessions</code>, and <code>/message</code>, plus a WebSocket endpoint at <code>/ws</code>.</p><p>That is why this frontend view shows host, port, heartbeat, and frame types instead of a generic “online” badge.</p>",
+            },
+            {
+              role: "user",
+              label: "You",
+              when: "1 min ago",
+              avatar: "DX",
+              content:
+                "<p>If this is PolarsClaw’s frontend, the surface should expose its real gateway and daemon model, not a generic AI dashboard.</p>",
+            },
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "1 min ago",
+              avatar: "PC",
+              content:
+                "<div class='inline-stack'><p>So this page now names the actual runtime seams:</p><ul><li><code>GatewayBridge</code> for stream fanout</li><li><code>GatewayConfig</code> for host/port/auth</li><li>daemon controls as a first-class operator surface</li></ul></div>",
+            },
+          ],
+        },
+        {
+          id: "routing-sessions",
+          title: "Routing + session lifecycle",
+          summary: "MultiAgentRouter, SessionManager, DispatchResult, and queue lanes",
+          latency: "collect",
+          thumb: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=320&q=80",
+          badges: ["Routing", "Sessions", "Queue"],
+          metrics: [
+            { label: "DM scope", value: "main" },
+            { label: "Queue mode", value: "collect" },
+            { label: "Max pending", value: "100" },
+            { label: "Concurrency", value: "4" },
+          ],
+          signals: [
+            { name: "MultiAgentRouter", detail: "router-first agent resolution with default fallback", score: "ready" },
+            { name: "SessionManager", detail: "create, resume, and resolve sessions by DM scope", score: "stable" },
+            { name: "CommandQueue", detail: "lane-aware FIFO with collect, followup, steer, interrupt", score: "stable" },
+          ],
+          details: [
+            { name: "dispatch_message()", detail: "persists user message, resolves session, routes agent, persists assistant reply", score: "runtime" },
+            { name: "QueueConfig", detail: "collect_window=2.0, default_mode=collect, max_pending=100", score: "config" },
+            { name: "DMScope", detail: "main / per-peer / per-channel-peer isolation modes", score: "type" },
+            { name: "SessionRepo", detail: "resume and list typed session records from SQLite", score: "storage" },
+          ],
+          messages: [
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "4 min ago",
+              avatar: "PC",
+              content:
+                "<p>Session flow here is specific: the runtime resolves an agent through the router, then creates or resumes a session through <code>SessionManager</code>, then persists both user and assistant messages.</p>",
+            },
+            {
+              role: "user",
+              label: "You",
+              when: "5 min ago",
+              avatar: "DX",
+              content:
+                "<p>Make the frontend feel like it understands queueing and DM scope, not just a floating message list.</p>",
+            },
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "5 min ago",
+              avatar: "PC",
+              content:
+                "<p>That is why this view exposes queue mode, pending capacity, and session scope directly in the chrome instead of hiding them behind generic “chat settings”.</p>",
+            },
+          ],
+        },
+        {
+          id: "memory-cron",
+          title: "Memory + cron subsystem",
+          summary: "MemoryCore, daily memory writing, hybrid search, and dreaming jobs",
+          latency: "UTC",
+          thumb: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=320&q=80",
+          badges: ["Memory", "Cron", "Local-first"],
+          metrics: [
+            { label: "Search", value: "hybrid" },
+            { label: "Writer", value: "daily log" },
+            { label: "Jobs", value: "light/rem/deep" },
+            { label: "Store", value: "workspace files" },
+          ],
+          signals: [
+            { name: "HybridSearcher", detail: "FTS + embeddings when provider exists, FTS-only fallback otherwise", score: "ready" },
+            { name: "DailyMemoryWriter", detail: "writes canonical markdown memory before reindexing", score: "stable" },
+            { name: "CronScheduler", detail: "registers light_sleep, rem_sleep, and deep_sleep runtime jobs", score: "wired" },
+          ],
+          details: [
+            { name: "MemoryCore", detail: "single entry-point for migration, indexing, search, watcher, and jobs", score: "facade" },
+            { name: "FileIndexer", detail: "indexes MEMORY.md, memory/*.md, and DREAMS.md", score: "index" },
+            { name: "RecallTracker", detail: "captures what gets recalled so promotion can learn", score: "tracking" },
+            { name: "Cron CLI", detail: "polarsclaw cron list and cron history expose persisted jobs/results", score: "entry" },
+          ],
+          messages: [
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "8 min ago",
+              avatar: "PC",
+              content:
+                "<p>Memory in PolarsClaw is not just “chat history.” It is a subsystem with indexing, watcher-based sync, daily markdown writing, and three dreaming phases registered into cron.</p>",
+            },
+            {
+              role: "user",
+              label: "You",
+              when: "9 min ago",
+              avatar: "DX",
+              content:
+                "<p>Show the project as local-first. The frontend should feel like it belongs to a file-backed assistant, not a hosted SaaS clone.</p>",
+            },
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "9 min ago",
+              avatar: "PC",
+              content:
+                "<p>So the persistence card names the real files and the memory view uses the actual components: <code>DailyMemoryWriter</code>, <code>HybridSearcher</code>, <code>FileWatcher</code>, and cron-backed dreaming jobs.</p>",
+            },
+          ],
+        },
+        {
+          id: "tools-skills-plugins",
+          title: "Tools, skills, plugins, and CLI",
+          summary: "ToolRegistry, SkillRegistry, PluginLoader, and the operator command surface",
+          latency: "full",
+          thumb: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=320&q=80",
+          badges: ["Tools", "Skills", "Plugins"],
+          metrics: [
+            { label: "Tool profile", value: "full" },
+            { label: "Skills", value: "filesystem" },
+            { label: "Plugins", value: "entry-point" },
+            { label: "Streaming", value: "on" },
+          ],
+          signals: [
+            { name: "ToolRegistry", detail: "resolves groups, profiles, allow lists, and deny lists", score: "stable" },
+            { name: "SkillRegistry", detail: "rescans disk and matches messages above threshold", score: "ready" },
+            { name: "PluginLoader", detail: "loads autoloaded plugins and local directory plugins", score: "enabled" },
+          ],
+          details: [
+            { name: "CLI root", detail: "chat, message, config, daemon, skills, cron", score: "entry" },
+            { name: "PluginAPI", detail: "plugins register tools and context engines into the app", score: "api" },
+            { name: "Settings", detail: "~/.polarsclaw/config.json plus POLARSCLAW_* env overrides", score: "config" },
+            { name: "Built-in groups", detail: "tool groups seed the registry before agent filtering", score: "registry" },
+          ],
+          messages: [
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "11 min ago",
+              avatar: "PC",
+              content:
+                "<p>The front-end should make the operator surfaces legible. This repo is part assistant, part runtime shell: commands, plugin loading, tool profiles, and skill discovery are all part of the product.</p>",
+            },
+            {
+              role: "user",
+              label: "You",
+              when: "12 min ago",
+              avatar: "DX",
+              content:
+                "<p>Show me features that really exist in the codebase, not vibes.</p>",
+            },
+            {
+              role: "assistant",
+              label: "PolarsClaw",
+              when: "12 min ago",
+              avatar: "PC",
+              content:
+                "<div class='inline-stack'><p>So this view anchors itself in the actual command and registry surface:</p><ul><li><code>polarsclaw chat</code> and <code>message</code></li><li><code>skills list</code> and <code>cron list</code></li><li><code>ToolRegistry</code>, <code>SkillRegistry</code>, and <code>PluginLoader</code></li></ul></div>",
+            },
+          ],
+        },
+      ];
+
+      const localReplies = [
+        "Mock reply: A connected version of this page would dispatch through SessionManager and CommandQueue rather than invent a frontend-only thread model.",
+        "Mock reply: The gateway panel is meant to map directly onto /health, /sessions, /message, and /ws.",
+        "Mock reply: The memory rail mirrors MemoryCore, DailyMemoryWriter, HybridSearcher, and cron-backed dreaming jobs.",
+        "Mock reply: The operator chrome reflects the real CLI surface: chat, message, skills, cron, config, and daemon.",
+      ];
+
+      const state = {
+        activeSession: sessions[0].id,
+        replyIndex: 0,
+      };
+
+      const sessionList = document.getElementById("sessionList");
+      const conversationTitle = document.getElementById("conversationTitle");
+      const conversationSubtitle = document.getElementById("conversationSubtitle");
+      const conversationBadges = document.getElementById("conversationBadges");
+      const metricStrip = document.getElementById("metricStrip");
+      const conversationShell = document.getElementById("conversationShell");
+      const signalList = document.getElementById("signalList");
+      const detailList = document.getElementById("detailList");
+      const composer = document.getElementById("composer");
+      const composerInput = document.getElementById("composerInput");
+      const clearDraft = document.getElementById("clearDraft");
+      const themeButtons = document.querySelectorAll("[data-theme-option]");
+
+      function getActiveSession() {
+        return sessions.find((session) => session.id === state.activeSession);
+      }
+
+      function renderSessions() {
+        sessionList.innerHTML = sessions
+          .map(
+            (session) => `
+              <button type="button" class="session-button ${session.id === state.activeSession ? "is-active" : ""}" data-session-id="${session.id}">
+                <div class="thumb">
+                  <img src="${session.thumb}" alt="${session.title}" />
+                </div>
+                <div class="session-copy">
+                  <strong>${session.title}</strong>
+                  <span>${session.summary}</span>
+                </div>
+                <div class="session-metric">${session.latency}</div>
+              </button>
+            `
+          )
+          .join("");
+
+        sessionList.querySelectorAll("[data-session-id]").forEach((button) => {
+          button.addEventListener("click", () => {
+            state.activeSession = button.getAttribute("data-session-id");
+            renderAll();
+          });
+        });
+      }
+
+      function renderBadges(badges) {
+        conversationBadges.innerHTML = badges
+          .map((badge, index) => `<div class="${index === 0 ? "mini-pill" : "ghost-pill"}">${badge}</div>`)
+          .join("");
+      }
+
+      function renderMetrics(metrics) {
+        metricStrip.innerHTML = metrics
+          .map(
+            (metric) => `
+              <div class="metric-card">
+                <span>${metric.label}</span>
+                <strong>${metric.value}</strong>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function renderMessages(messages) {
+        conversationShell.innerHTML = messages
+          .map(
+            (message) => `
+              <article class="message-row ${message.role}">
+                <div class="message-avatar">${message.avatar}</div>
+                <div class="message-body">
+                  <div class="message-meta">
+                    <strong>${message.label}</strong>
+                    <span>${message.when}</span>
+                  </div>
+                  <div class="message-copy">${message.content}</div>
+                </div>
+              </article>
+            `
+          )
+          .join("");
+        conversationShell.scrollTop = conversationShell.scrollHeight;
+      }
+
+      function renderSignals(signals) {
+        signalList.innerHTML = signals
+          .map(
+            (signal) => `
+              <div class="signal-row">
+                <div>
+                  <strong>${signal.name}</strong>
+                  <span>${signal.detail}</span>
+                </div>
+                <div class="score">${signal.score}</div>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function renderDetails(details) {
+        detailList.innerHTML = details
+          .map(
+            (detail) => `
+              <div class="skill-row">
+                <div>
+                  <strong>${detail.name}</strong>
+                  <span>${detail.detail}</span>
+                </div>
+                <em>${detail.score}</em>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function renderAll() {
+        const session = getActiveSession();
+        renderSessions();
+        conversationTitle.textContent = session.title;
+        conversationSubtitle.textContent = session.summary;
+        renderBadges(session.badges);
+        renderMetrics(session.metrics);
+        renderMessages(session.messages);
+        renderSignals(session.signals);
+        renderDetails(session.details);
+      }
+
+      function setTheme(theme) {
+        document.body.setAttribute("data-theme", theme);
+        localStorage.setItem("polarsclaw-theme", theme);
+        themeButtons.forEach((button) => {
+          button.classList.toggle("is-active", button.getAttribute("data-theme-option") === theme);
+        });
+      }
+
+      composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = composerInput.value.trim();
+        if (!text) return;
+
+        const session = getActiveSession();
+        session.messages.push({
+          role: "user",
+          label: "You",
+          when: "now",
+          avatar: "DX",
+          content: `<p>${text.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]))}</p>`,
+        });
+
+        renderAll();
+        composerInput.value = "";
+
+        const reply = localReplies[state.replyIndex % localReplies.length];
+        state.replyIndex += 1;
+
+        window.setTimeout(() => {
+          session.messages.push({
+            role: "assistant",
+            label: "PolarsClaw",
+            when: "moments later",
+            avatar: "PC",
+            content: `<p>${reply}</p>`,
+          });
+          renderAll();
+        }, 420);
+      });
+
+      clearDraft.addEventListener("click", () => {
+        composerInput.value = "";
+        composerInput.focus();
+      });
+
+      themeButtons.forEach((button) => {
+        button.addEventListener("click", () => setTheme(button.getAttribute("data-theme-option")));
+      });
+
+      const savedTheme = localStorage.getItem("polarsclaw-theme");
+      setTheme(savedTheme === "dark" ? "dark" : "light");
+      renderAll();
+    </script>
+  </body>
+</html>

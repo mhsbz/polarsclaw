@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from polarsclaw.storage.database import Database
+from polarsclaw.storage.migrations import CURRENT_VERSION
 
 
 class TestDatabase:
@@ -41,7 +42,7 @@ class TestDatabase:
         conn = db.get_connection()
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == 1
+        assert row[0] == CURRENT_VERSION
         await db.close()
 
     async def test_execute_write(self, tmp_db: Database) -> None:

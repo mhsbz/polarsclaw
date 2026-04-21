@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 
@@ -28,7 +30,7 @@ class MemoryConfig(BaseModel):
     """Full configuration for the PolarsClaw memory system."""
 
     enabled: bool = True
-    workspace: str = Field(default=".polarsclaw/memory", description="Directory for memory artefacts")
+    workspace: Path = Field(default=Path("."), description="Directory for memory artefacts")
 
     # Embedding settings
     embedding_model: str = Field(default="all-MiniLM-L6-v2")

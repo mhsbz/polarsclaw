@@ -20,6 +20,9 @@ _STANDARD_PROVIDERS = frozenset({
     "ollama", "huggingface",
 })
 
+# Provider-specific API types
+_API_TYPES = frozenset({"anthropic-messages", "openai-chat", "zai-anthropic"})
+
 
 def _resolve_api_key(provider_name: str, provider_cfg: "ModelProviderConfig") -> str | None:
     """Resolve API key from provider config, env var, or OpenClaw."""
@@ -36,7 +39,8 @@ def _resolve_api_key(provider_name: str, provider_cfg: "ModelProviderConfig") ->
     # 3. Common env var patterns
     for env_name in (
         f"{provider_name.upper()}_API_KEY",
-        f"MINIMAX_API_KEY" if provider_name == "minimax" else None,
+        "MINIMAX_API_KEY" if provider_name == "minimax" else None,
+        "ZAI_API_KEY" if provider_name == "zai" else None,
     ):
         if env_name:
             key = os.environ.get(env_name)
@@ -46,6 +50,7 @@ def _resolve_api_key(provider_name: str, provider_cfg: "ModelProviderConfig") ->
     # 4. Try OpenClaw auth profiles
     try:
         from polarsclaw.agents.openclaw_compat import load_openclaw_api_key
+
         key = load_openclaw_api_key(provider_name)
         if key:
             return key
@@ -78,7 +83,7 @@ def _create_custom_model(
             kwargs["api_key"] = api_key
 
         logger.info(
-            "Creating ChatAnthropic for custom provider %s (model=%s, base_url=%s)",
+            "Creating ChatAnthropic for %s (model=%s, base_url=%s)",
             provider_name, model_id, provider_cfg.base_url,
         )
         return ChatAnthropic(**kwargs)
@@ -96,15 +101,34 @@ def _create_custom_model(
             kwargs["api_key"] = api_key
 
         logger.info(
-            "Creating ChatOpenAI for custom provider %s (model=%s, base_url=%s)",
+            "Creating ChatOpenAI for %s (model=%s, base_url=%s)",
             provider_name, model_id, provider_cfg.base_url,
         )
         return ChatOpenAI(**kwargs)
 
+    elif provider_cfg.api == "zai-anthropic":
+        # ZAI Anthropic-compatible endpoint: maps claude-* model names to GLM models
+        from langchain_anthropic import ChatAnthropic
+
+        kwargs: dict = {
+            "model_name": model_id,
+            "base_url": provider_cfg.base_url,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        logger.info(
+            "Creating ChatAnthropic for ZAI %s (model=%s, base_url=%s)",
+            provider_name, model_id, provider_cfg.base_url,
+        )
+        return ChatAnthropic(**kwargs)
+
     else:
         raise ValueError(
             f"Unknown API type '{provider_cfg.api}' for provider '{provider_name}'. "
-            f"Supported: 'anthropic-messages', 'openai-chat'"
+            f"Supported: {', '.join(sorted(_API_TYPES))}"
         )
 
 
@@ -122,7 +146,9 @@ def resolve_model(
     - google_genai:gemini-2.0-flash
 
     Custom providers (via settings.providers):
-    - minimax:MiniMax-M2.7-highspeed -> ChatAnthropic(base_url=..., model=..., api_key=...)
+    - minimax:MiniMax-M2.7 -> ChatOpenAI(base_url=..., model=..., api_key=...)
+    - zai:claude-opus-4-7 -> ChatAnthropic(base_url=..., model=..., api_key=...)
+    - vllm:Mistral-7B-Instruct -> ChatOpenAI(base_url=..., model=..., api_key=...)
     """
     # Split on first ':' only
     if ":" in model_spec:
@@ -130,6 +156,7 @@ def resolve_model(
     else:
         # No provider prefix — pass through to init_chat_model
         from langchain.chat_models import init_chat_model
+
         return init_chat_model(model_spec, temperature=temperature, max_tokens=max_tokens)
 
     # Check custom providers first
@@ -142,6 +169,7 @@ def resolve_model(
     # Check if it's a standard provider
     if provider in _STANDARD_PROVIDERS:
         from langchain.chat_models import init_chat_model
+
         return init_chat_model(
             model_spec, temperature=temperature, max_tokens=max_tokens,
         )
@@ -149,6 +177,7 @@ def resolve_model(
     # Try loading from OpenClaw as a fallback
     try:
         from polarsclaw.agents.openclaw_compat import load_openclaw_providers
+
         openclaw_providers = load_openclaw_providers()
         if provider in openclaw_providers:
             settings.providers[provider] = openclaw_providers[provider]
@@ -161,6 +190,7 @@ def resolve_model(
 
     # Last resort: try init_chat_model
     from langchain.chat_models import init_chat_model
+
     logger.warning(
         "Unknown provider '%s', attempting init_chat_model with full spec '%s'",
         provider, model_spec,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -33,14 +33,26 @@ def _parse_every(expr: str) -> dict[str, Any]:
 class CronScheduler:
     """Manages scheduled jobs backed by APScheduler + SQLite."""
 
-    def __init__(self, db: Database, *, timezone: str = "UTC") -> None:
+    def __init__(
+        self,
+        db: Database,
+        *,
+        timezone: str = "UTC",
+        max_concurrent: int = 4,
+        default_timeout: int = 300,
+    ) -> None:
         self._db = db
         self._repo = CronRepo(db)
         self._timezone = timezone
-        self._scheduler = AsyncIOScheduler(timezone=timezone)
-        self._agent_factory: Callable | None = None
+        self._scheduler = AsyncIOScheduler(
+            timezone=timezone,
+            job_defaults={"max_instances": max_concurrent},
+        )
+        self._agent_factory: Callable[[], Awaitable[Any]] | None = None
+        self._runtime_callbacks: dict[int, Callable[[], Awaitable[Any]]] = {}
+        self._default_timeout = default_timeout
 
-    def set_agent_factory(self, factory: Callable) -> None:
+    def set_agent_factory(self, factory: Callable[[], Awaitable[Any]]) -> None:
         """Set the callable used to create agents for job execution."""
         self._agent_factory = factory
 
@@ -64,6 +76,7 @@ class CronScheduler:
         schedule: str,
         task: str,
         schedule_type: ScheduleType = ScheduleType.CRON,
+        callback: Callable[[], Awaitable[Any]] | None = None,
     ) -> CronJob:
         """Validate, save to DB, and register a new job."""
         # Validate cron expression
@@ -82,8 +95,42 @@ class CronScheduler:
         )
         row = await self._repo.get(job_id)
         job = self._row_to_cronjob(row)
+        if callback is not None:
+            self._runtime_callbacks[job.id] = callback
         self._register_job(job)
         logger.info("Added cron job %d: %s", job.id, job.name)
+        return job
+
+    async def register_runtime_job(
+        self,
+        name: str,
+        schedule: str,
+        callback: Callable[[], Awaitable[Any]],
+        *,
+        task: str = "",
+        schedule_type: ScheduleType = ScheduleType.CRON,
+    ) -> CronJob:
+        """Register a scheduler-owned callback job and persist it in the DB."""
+        try:
+            row = await self._repo.get_by_name(name)
+            await self._repo.update(
+                row["id"],
+                schedule=schedule,
+                payload={"task": task},
+                enabled=True,
+            )
+            row = await self._repo.get(row["id"])
+            job = self._row_to_cronjob(row)
+        except Exception:
+            job = await self.add_job(
+                name,
+                schedule,
+                task,
+                schedule_type=schedule_type,
+                callback=callback,
+            )
+        self._runtime_callbacks[job.id] = callback
+        self._register_job(job)
         return job
 
     async def remove_job(self, job_id: int) -> bool:
@@ -93,6 +140,7 @@ class CronScheduler:
             self._scheduler.remove_job(ap_id)
         except Exception:
             pass
+        self._runtime_callbacks.pop(job_id, None)
         await self._repo.delete(job_id)
         logger.info("Removed cron job %d.", job_id)
         return True
@@ -130,9 +178,19 @@ class CronScheduler:
 
     async def _execute_wrapper(self, job: CronJob) -> None:
         """Wrapper that delegates to execute_cron_job."""
-        from polarsclaw.cron.executor import execute_cron_job
+        from polarsclaw.cron.executor import execute_cron_job, execute_runtime_job
 
-        await execute_cron_job(job, self._agent_factory, self._db)
+        callback = self._runtime_callbacks.get(job.id)
+        if callback is not None:
+            await execute_runtime_job(job, callback, self._db)
+            return
+
+        await execute_cron_job(
+            job,
+            self._agent_factory,
+            self._db,
+            timeout=self._default_timeout,
+        )
 
     @staticmethod
     def _row_to_cronjob(row: dict[str, Any]) -> CronJob:

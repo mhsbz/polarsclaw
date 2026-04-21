@@ -117,6 +117,99 @@ class MemoryDB:
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
+    async def get_all_chunks(self) -> list[dict[str, Any]]:
+        """Return all chunks with file metadata attached."""
+        conn = self._db.get_connection()
+        async with conn.execute(
+            """
+            SELECT
+                mc.id AS chunk_id,
+                mc.file_id,
+                mc.content,
+                mc.heading,
+                mc.token_count,
+                mc.created_at,
+                mf.path AS file_path
+            FROM mem_chunks mc
+            JOIN mem_files mf ON mf.id = mc.file_id
+            ORDER BY mf.path, mc.chunk_index
+            """
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_chunks_by_file_pattern(self, pattern: str) -> list[dict[str, Any]]:
+        """Return chunks whose file path matches a SQLite GLOB pattern."""
+        conn = self._db.get_connection()
+        async with conn.execute(
+            """
+            SELECT
+                mc.id AS chunk_id,
+                mc.file_id,
+                mc.content,
+                mc.heading,
+                mc.token_count,
+                mc.created_at,
+                mf.path AS file_path
+            FROM mem_chunks mc
+            JOIN mem_files mf ON mf.id = mc.file_id
+            WHERE mf.path GLOB ?
+            ORDER BY mf.path, mc.chunk_index
+            """,
+            (pattern,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_chunks_by_ids(self, chunk_ids: list[int]) -> list[dict[str, Any]]:
+        """Return specific chunks by id."""
+        if not chunk_ids:
+            return []
+        placeholders = ",".join("?" for _ in chunk_ids)
+        conn = self._db.get_connection()
+        async with conn.execute(
+            f"""
+            SELECT
+                mc.id AS chunk_id,
+                mc.file_id,
+                mc.content,
+                mc.heading,
+                mc.token_count,
+                mc.created_at,
+                mf.path AS file_path
+            FROM mem_chunks mc
+            JOIN mem_files mf ON mf.id = mc.file_id
+            WHERE mc.id IN ({placeholders})
+            ORDER BY mc.id
+            """,
+            tuple(chunk_ids),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_chunk(self, chunk_id: int) -> None:
+        await self._db.execute_write(
+            "DELETE FROM mem_chunks WHERE id = ?",
+            (chunk_id,),
+        )
+
+    async def get_chunk_meta(self, chunk_id: int) -> dict[str, Any]:
+        raw = await self.get_meta(f"chunk:{chunk_id}")
+        if raw is None:
+            return {}
+        try:
+            import json
+
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    async def set_chunk_meta(self, chunk_id: int, meta: dict[str, Any]) -> None:
+        import json
+
+        await self.set_meta(f"chunk:{chunk_id}", json.dumps(meta))
+
+    async def get_recall_count(self, chunk_id: int) -> int:
+        stats = await self.get_recall_stats(chunk_id)
+        return int(stats["count"])
+
     # ── mem_chunks_vec ───────────────────────────────────────────────────
 
     async def upsert_vectors(

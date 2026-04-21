@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 
 import click
 from rich.console import Console
@@ -29,6 +28,7 @@ async def _chat_loop(
     try:
         from polarsclaw.app import build_app, cleanup_app
         from polarsclaw.config.settings import Settings
+        from polarsclaw.runtime import dispatch_message
     except ImportError:
         console.print("[red]App module not available. Install dependencies first.[/red]")
         return
@@ -62,9 +62,8 @@ async def _chat_loop(
         console.print("[yellow]No agent available — echo mode.[/yellow]")
 
     # --- 3. Session ---
-    if session_id is None:
-        session_id = uuid.uuid4().hex[:12]
-    console.print(f"[dim]Session: {session_id}[/dim]")
+    active_session_id = session_id
+    console.print(f"[dim]Session: {active_session_id or '(auto)'}[/dim]")
     console.print("[dim]Type /quit or /exit to leave. Ctrl+C to cancel.[/dim]\n")
 
     # --- 4. REPL ---
@@ -89,17 +88,25 @@ async def _chat_loop(
                     console.print()
                     response_text = ""
                     try:
-                        async for chunk in agent.stream(text, session_id=session_id):
-                            response_text += chunk
-                            # Print incrementally
-                            console.print(chunk, end="", highlight=False)
+                        result = await dispatch_message(
+                            app,
+                            content=text,
+                            session_id=active_session_id,
+                            on_token=_stream_console(console, response_text := []),
+                        )
+                        active_session_id = result.session.id
                         if response_text:
-                            console.print()  # newline after stream
+                            console.print()
                         else:
                             raise RuntimeError("Stream returned empty response")
                     except Exception:
-                        # Fall back to non-streaming
-                        response_text = await agent.run(text, session_id=session_id)
+                        result = await dispatch_message(
+                            app,
+                            content=text,
+                            session_id=active_session_id,
+                        )
+                        active_session_id = result.session.id
+                        response_text = result.response
                         if response_text:
                             console.print(Markdown(response_text))
                         else:
@@ -119,3 +126,11 @@ async def _chat_loop(
             await cleanup_app(app)
         except Exception:
             pass
+
+
+def _stream_console(console: Console, collected: list[str]):
+    async def _callback(chunk: str) -> None:
+        collected.append(chunk)
+        console.print(chunk, end="", highlight=False)
+
+    return _callback

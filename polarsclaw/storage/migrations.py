@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 MIGRATIONS: dict[int, list[str]] = {
     1: [
@@ -118,6 +118,17 @@ MIGRATIONS: dict[int, list[str]] = {
             state       TEXT    NOT NULL DEFAULT '{}',
             updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
         );
+        """,
+    ],
+    2: [
+        """
+        ALTER TABLE cron_results ADD COLUMN session_id TEXT;
+        """,
+        """
+        ALTER TABLE cron_results ADD COLUMN task TEXT;
+        """,
+        """
+        ALTER TABLE cron_results ADD COLUMN duration_ms INTEGER;
         """,
     ],
 }

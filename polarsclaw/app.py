@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,14 +12,17 @@ from polarsclaw.agents.loop import AgentLoop
 from polarsclaw.config.settings import AgentConfig, Settings
 from polarsclaw.context.registry import ContextEngineRegistry
 from polarsclaw.cron.scheduler import CronScheduler
+from polarsclaw.gateway.bridge import GatewayBridge
 from polarsclaw.plugins.api import PluginAPI
 from polarsclaw.plugins.loader import PluginLoader
 from polarsclaw.queue.command_queue import CommandQueue
+from polarsclaw.runtime import build_agent_factory, resolve_dm_scope
 from polarsclaw.routing.bindings import Binding
 from polarsclaw.routing.router import MultiAgentRouter
 from polarsclaw.sessions.manager import SessionManager
 from polarsclaw.skills.registry import SkillRegistry
 from polarsclaw.storage.database import Database
+from polarsclaw.storage.repositories import MessageRepo
 from polarsclaw.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -33,12 +37,16 @@ class AppContext:
     tool_registry: ToolRegistry
     skill_registry: SkillRegistry
     session_manager: SessionManager
+    message_repo: MessageRepo
     cron_scheduler: CronScheduler
     command_queue: CommandQueue
     router: MultiAgentRouter
     plugin_loader: PluginLoader
     plugin_api: PluginAPI
     context_registry: ContextEngineRegistry
+    gateway_bridge: GatewayBridge
+    checkpoint_conn: sqlite3.Connection | None = None
+    checkpointer: Any = None
     memory_core: Any = None  # MemoryCore instance (optional)
     agents: dict[str, AgentLoop] = field(default_factory=dict)
 
@@ -83,10 +91,16 @@ async def build_app(settings: Settings | None = None) -> AppContext:
     plugin_loader.load_all(plugin_api)
 
     # ── 6. Register built-in tools ─────────────────────────────────────
-    cron_scheduler = CronScheduler(db, timezone=settings.cron.timezone)
+    cron_scheduler = CronScheduler(
+        db,
+        timezone=settings.cron.timezone,
+        max_concurrent=settings.cron.max_concurrent,
+        default_timeout=settings.cron.default_timeout,
+    )
 
     # Session manager needs to exist before tools reference it
-    session_manager = SessionManager(db)
+    session_manager = SessionManager(db, dm_scope=resolve_dm_scope(settings.dm_scope))
+    message_repo = MessageRepo(db)
 
     from polarsclaw.tools.builtin import register_all_builtin_tools
 
@@ -114,14 +128,21 @@ async def build_app(settings: Settings | None = None) -> AppContext:
         from polarsclaw.memory import MemoryCore
         from polarsclaw.memory.config import MemoryConfig
 
-        mem_cfg = settings.memory if isinstance(settings.memory, MemoryConfig) else MemoryConfig()
+        if isinstance(settings.memory, MemoryConfig):
+            mem_cfg = settings.memory
+        elif isinstance(settings.memory, dict):
+            mem_cfg = MemoryConfig.model_validate(settings.memory)
+            if mem_cfg.workspace == Path("."):
+                mem_cfg.workspace = Path.cwd()
+        else:
+            mem_cfg = MemoryConfig(workspace=Path.cwd())
         memory_core = MemoryCore(db=db, config=mem_cfg)
         await memory_core.initialize()
         # Register memory tools with the tool registry
         for mem_tool in memory_core.get_tools():
             tool_registry.register(mem_tool)
         # Register dreaming cron jobs
-        memory_core.register_jobs(cron_scheduler)
+        await memory_core.register_jobs(cron_scheduler)
         logger.info("Memory subsystem initialised (embedding=%s)", mem_cfg.embedding_provider)
     except Exception:
         logger.warning("Memory subsystem failed to initialise — running without it", exc_info=True)
@@ -137,10 +158,14 @@ async def build_app(settings: Settings | None = None) -> AppContext:
 
     from polarsclaw.agents.factory import create_agent
 
-    # Use in-memory checkpointer for now; can be swapped for DB-backed later
+    checkpoint_conn: sqlite3.Connection | None = None
     try:
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        checkpoint_path = settings.config_dir / "checkpoints.db"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_conn = sqlite3.connect(str(checkpoint_path), check_same_thread=False)
+        checkpointer = SqliteSaver(checkpoint_conn)
     except ImportError:
         checkpointer = None  # type: ignore[assignment]
 
@@ -176,7 +201,33 @@ async def build_app(settings: Settings | None = None) -> AppContext:
     )
 
     # ── 12. Command queue ──────────────────────────────────────────────
-    command_queue = CommandQueue()
+    command_queue = CommandQueue(
+        max_concurrency=settings.cron.max_concurrent,
+        max_pending=settings.queue.max_pending,
+        collect_window_ms=int(settings.queue.collect_window * 1000),
+    )
+    gateway_bridge = GatewayBridge()
+
+    ctx = AppContext(
+        settings=settings,
+        db=db,
+        tool_registry=tool_registry,
+        skill_registry=skill_registry,
+        session_manager=session_manager,
+        message_repo=message_repo,
+        cron_scheduler=cron_scheduler,
+        command_queue=command_queue,
+        router=router,
+        plugin_loader=plugin_loader,
+        plugin_api=plugin_api,
+        context_registry=context_registry,
+        gateway_bridge=gateway_bridge,
+        checkpoint_conn=checkpoint_conn,
+        checkpointer=checkpointer,
+        memory_core=memory_core,
+        agents=agents,
+    )
+    cron_scheduler.set_agent_factory(build_agent_factory(ctx))
 
     # ── 13. Assemble context ───────────────────────────────────────────
     logger.info(
@@ -186,21 +237,7 @@ async def build_app(settings: Settings | None = None) -> AppContext:
         len(plugin_loader.states),
     )
 
-    return AppContext(
-        settings=settings,
-        db=db,
-        tool_registry=tool_registry,
-        skill_registry=skill_registry,
-        session_manager=session_manager,
-        cron_scheduler=cron_scheduler,
-        command_queue=command_queue,
-        router=router,
-        plugin_loader=plugin_loader,
-        plugin_api=plugin_api,
-        context_registry=context_registry,
-        memory_core=memory_core,
-        agents=agents,
-    )
+    return ctx
 
 
 async def cleanup_app(ctx: AppContext) -> None:
@@ -220,10 +257,22 @@ async def cleanup_app(ctx: AppContext) -> None:
     except Exception:
         logger.warning("Error stopping cron scheduler", exc_info=True)
 
+    # Stop command queue
+    try:
+        await ctx.command_queue.stop()
+    except Exception:
+        logger.warning("Error stopping command queue", exc_info=True)
+
     # Close database
     try:
         await ctx.db.close()
     except Exception:
         logger.warning("Error closing database", exc_info=True)
+
+    if ctx.checkpoint_conn is not None:
+        try:
+            ctx.checkpoint_conn.close()
+        except Exception:
+            logger.warning("Error closing checkpoint connection", exc_info=True)
 
     logger.info("Cleanup complete.")

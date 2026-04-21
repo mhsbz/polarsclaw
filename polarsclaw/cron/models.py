@@ -30,5 +30,7 @@ class CronResult(BaseModel):
     success: bool
     output: str | None = None
     error: str | None = None
+    session_id: str | None = None
+    task: str | None = None
     executed_at: datetime
     duration_ms: int

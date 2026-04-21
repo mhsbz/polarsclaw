@@ -80,3 +80,18 @@ class Memory(BaseModel):
     session_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class CronExecutionResult(BaseModel):
+    """Persisted result metadata for one cron execution."""
+
+    id: int
+    job_id: int
+    status: str
+    output: str | None = None
+    error: str | None = None
+    session_id: str | None = None
+    task: str | None = None
+    duration_ms: int | None = None
+    started_at: datetime
+    finished_at: datetime | None = None

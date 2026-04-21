@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from langchain_core.tools import BaseTool, tool
 
-from polarsclaw.storage.database import Database
-from polarsclaw.storage.repositories import SessionRepo
+from polarsclaw.sessions.manager import SessionManager
 
 
-def make_session_tools(db: Database) -> list[BaseTool]:
+def make_session_tools(session_mgr: SessionManager) -> list[BaseTool]:
     """Factory that returns session tools with *db* injected via closure."""
-
-    repo = SessionRepo(db)
 
     @tool
     async def list_sessions(limit: int = 10) -> str:
@@ -20,15 +17,15 @@ def make_session_tools(db: Database) -> list[BaseTool]:
         Args:
             limit: Maximum number of sessions to return.
         """
-        sessions = await repo.list(limit=limit)
+        sessions = await session_mgr.list_all(limit=limit)
         if not sessions:
             return "No sessions found."
 
         lines = []
         for s in sessions:
-            title = s.get("title") or "(untitled)"
-            sid = s["id"]
-            updated = s.get("updated_at", "")
+            title = s.title or "(untitled)"
+            sid = s.id
+            updated = s.updated_at.isoformat()
             lines.append(f"- `{sid}` — {title} (updated: {updated})")
         return "\n".join(lines)
 
@@ -43,8 +40,8 @@ def make_session_tools(db: Database) -> list[BaseTool]:
             session_id: The session ID to switch to.
         """
         # Validate the session exists
-        session = await repo.get(session_id)
-        title = session.get("title") or "(untitled)"
+        session = await session_mgr.resume(session_id)
+        title = session.title or "(untitled)"
         return (
             f"Switching to session `{session_id}` — {title}. "
             "The next message will use this session's context."

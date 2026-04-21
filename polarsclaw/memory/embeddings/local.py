@@ -19,7 +19,7 @@ def _load_model(model_name: str):  # noqa: ANN202
     from sentence_transformers import SentenceTransformer
 
     logger.info("Loading sentence-transformer model: %s", model_name)
-    return SentenceTransformer(model_name)
+    return SentenceTransformer(model_name, local_files_only=True)
 
 
 class SentenceTransformerProvider(EmbeddingProvider):

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 
 import click
 from rich.console import Console
@@ -30,6 +29,7 @@ async def _send_message(
     try:
         from polarsclaw.app import build_app, cleanup_app
         from polarsclaw.config.settings import Settings
+        from polarsclaw.runtime import dispatch_message
     except ImportError:
         console.print("[red]App module not available.[/red]")
         return
@@ -51,19 +51,8 @@ async def _send_message(
         return
 
     try:
-        if session_id is None:
-            session_id = uuid.uuid4().hex[:12]
-
-        agent = None
-        if app.agents:
-            agent = next(iter(app.agents.values()))
-
-        if agent is not None:
-            response_text = await agent.run(text, session_id=session_id)
-        else:
-            response_text = f"*(echo)* {text}"
-
-        console.print(Markdown(response_text))
+        result = await dispatch_message(app, content=text, session_id=session_id)
+        console.print(Markdown(result.response))
     finally:
         try:
             await cleanup_app(app)

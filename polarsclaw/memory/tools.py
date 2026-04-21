@@ -65,4 +65,24 @@ def make_memory_core_tools(memory_core: MemoryCore) -> list[BaseTool]:
 
         return content
 
-    return [memory_search, memory_get]  # type: ignore[list-item]
+    @tool
+    async def memory_append(
+        content: str,
+        role: str = "assistant",
+        session_id: str | None = None,
+    ) -> str:
+        """Append a note to today's daily memory log.
+
+        This writes to ``memory/YYYY-MM-DD.md`` — the canonical source
+        of truth.  The file is human-readable, git-versionable, and can be
+        edited directly.  It is automatically indexed for search.
+
+        Args:
+            content: The memory or note to record.
+            role: Who produced this content (user | assistant | system | tool).
+            session_id: Optional session identifier for traceability.
+        """
+        path = await memory_core.append_memory(content, role=role, session_id=session_id)
+        return f"Appended to {path}"
+
+    return [memory_search, memory_get, memory_append]  # type: ignore[list-item]

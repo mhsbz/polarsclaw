@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -70,6 +71,22 @@ class TestPluginLoader:
         ]
         loader.load_all(api)
         api.register_tool.assert_not_called()
+
+    def test_discover_from_local_directory(self, tmp_path: Path) -> None:
+        plugin_dir = tmp_path / "plugins"
+        plugin_dir.mkdir()
+        (plugin_dir / "local_plugin.py").write_text(
+            "def register(api):\n    return None\n",
+            encoding="utf-8",
+        )
+
+        settings = Settings()
+        settings.plugin.directories = [str(plugin_dir)]
+        loader = PluginLoader(settings)
+
+        manifests = loader.discover()
+
+        assert any(m.name == "local_plugin" for m in manifests)
 
 
 class TestPluginAPI:
